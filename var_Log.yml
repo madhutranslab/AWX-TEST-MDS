@@ -2,6 +2,7 @@
 - name: Setup /var/log mount in AWX
   hosts: all
   become: true
+  gather_facts: true  # Ensure that facts are gathered
   tasks:
     - name: Ensure /var/log is unmounted
       command: umount /var/log
@@ -14,7 +15,7 @@
     
     - name: Format /var_log.img as xfs
       command: "mkfs.xfs /var_log.img"
-      when: ansible_facts['ansible_mounts'] is not search('/var/log')  # Only format if not formatted already
+      when: "'/var/log' not in ansible_mounts | map(attribute='mount') | list"  # Check if /var/log is not mounted
     
     - name: Mount /var_log.img to /var/log with the correct options
       mount:
