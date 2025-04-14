@@ -1,0 +1,49 @@
+---
+- name: Ensure nodev option is set on /var/log or root filesystem
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Check if root filesystem or /var/log is mounted with nodev
+      command: mount | grep ' / '
+      register: mount_check
+      failed_when: false
+
+    - name: Set nodev on root partition if not already set
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^UUID=.* / '
+        line: 'UUID={{ ansible_mounts[0].uuid }} / xfs defaults,rw,nosuid,nodev,noexec,relatime 0 0'
+        create: yes
+      when: "'nodev' not in mount_check.stdout"
+
+    - name: Set nodev on /var/log partition if not already set (for separate /var/log)
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^UUID=.* /var/log '
+        line: 'UUID={{ ansible_mounts[1].uuid }} /var/log xfs defaults,rw,nosuid,nodev,noexec,relatime 0 0'
+        create: yes
+      when: "'nodev' not in mount_check.stdout"
+
+    - name: Remount root filesystem
+      command: mount -o remount /
+      when: "'nodev' not in mount_check.stdout"
+      
+    - name: Remount /var/log if it's a separate partition
+      command: mount -o remount /var/log
+      when: "'/var/log' in mount_check.stdout and 'nodev' not in mount_check.stdout"
+
+    - name: Verify nodev is set on root or /var/log filesystem
+      command: mount | grep ' / '
+      register: verify_mount
+      failed_when: "'nodev' not in verify_mount.stdout"
+      
+    - name: Ensure the filesystem is mounted with nodev
+      debug:
+        msg: "The filesystem is now correctly mounted with the 'nodev' option."
+      when: "'nodev' in verify_mount.stdout"
+
+    - name: Fail if nodev is not set
+      fail:
+        msg: "The filesystem is not mounted with the 'nodev' option."
+      when: "'nodev' not in verify_mount.stdout"
