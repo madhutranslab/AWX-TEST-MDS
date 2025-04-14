@@ -1,0 +1,26 @@
+---
+- name: Ensure /tmp has nodev, nosuid, noexec mount options
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Check if /tmp is a separate mount
+      command: findmnt -n /tmp
+      register: tmp_mount
+      failed_when: false
+      changed_when: false
+
+    - name: Ensure /tmp has secure mount options in /etc/fstab
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^(\S+\s+/tmp\s+\S+\s+)([^#\n]*)'
+        line: '\1defaults,rw,nosuid,nodev,noexec,relatime'
+        backrefs: yes
+      when: tmp_mount.rc == 0
+
+    - name: Remount /tmp with correct options
+      mount:
+        path: /tmp
+        opts: defaults,rw,nosuid,nodev,noexec,relatime
+        state: remounted
+      when: tmp_mount.rc == 0
