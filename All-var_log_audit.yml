@@ -4,6 +4,11 @@
   become: yes
   tasks:
 
+    - name: Check if /audit.img exists
+      stat:
+        path: /audit.img
+      register: audit_img_check
+
     - name: Create image file if it doesn't exist
       command: dd if=/dev/zero of=/audit.img bs=1M count=100
       args:
@@ -13,9 +18,7 @@
       filesystem:
         fstype: xfs
         dev: /audit.img
-      when: audit_img_check.stat.exists == false
-      vars:
-        audit_img_check: "{{ lookup('ansible.builtin.stat', '/audit.img', get_attributes=True) }}"
+      when: not audit_img_check.stat.exists
 
     - name: Ensure mount point exists
       file:
@@ -38,5 +41,3 @@
         fstype: xfs
         opts: loop,nodev,nosuid,noexec,relatime
         state: present
-
-
