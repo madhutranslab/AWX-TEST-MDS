@@ -1,0 +1,33 @@
+---
+- name: Ensure nodev is set on /var/log/audit partition
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Check if /var/log/audit is mounted with nodev
+      command: mount | grep '/var/log/audit' 
+      register: mount_check
+      changed_when: false
+      failed_when: false
+
+    - name: Add nodev option in /etc/fstab for /var/log/audit if not present
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^/audit.img\s+'
+        line: '/audit.img /var/log/audit xfs loop,nodev 0 0'
+      when: "'nodev' not in mount_check.stdout"
+
+    - name: Remount /var/log/audit to apply nodev option
+      command: mount -o remount /var/log/audit
+      when: "'nodev' not in mount_check.stdout"
+    
+    - name: Verify /var/log/audit is mounted with nodev
+      command: mount | grep '/var/log/audit'
+      register: remount_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if nodev is not set on /var/log/audit
+      fail:
+        msg: "/var/log/audit is not mounted with the nodev option."
+      when: "'nodev' not in remount_check.stdout"
