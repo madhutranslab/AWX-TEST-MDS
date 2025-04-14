@@ -4,17 +4,22 @@
   become: yes
   tasks:
 
-    - name: Check if /var/log/audit is mounted with nodev
+    - name: Check if /var/log/audit is mounted
       command: mount | grep '/var/log/audit'
       register: mount_check
       changed_when: false
       failed_when: false
 
+    - name: Fail if /var/log/audit is not mounted
+      fail:
+        msg: "/var/log/audit is not mounted. Cannot apply nodev option."
+      when: mount_check.stdout == ""
+
     - name: Add nodev option in /etc/fstab for /var/log/audit if not present
       lineinfile:
         path: /etc/fstab
         regexp: '^.*\s+/var/log/audit\s+.*'
-        line: "{{ mount_check.stdout.split()[0] }} /var/log/audit {{ mount_check.stdout.split()[4] }} nodev 0 0"
+        line: "{{ mount_check.stdout.split()[0] }} /var/log/audit {{ mount_check.stdout.split()[4] }},nodev 0 0"
       when: "'nodev' not in mount_check.stdout"
 
     - name: Remount /var/log/audit to apply nodev option
