@@ -1,32 +1,21 @@
 ---
-- name: Setup /var/log mount in AWX
-  hosts: all
-  become: true
-  gather_facts: true  # Ensure that facts are gathered
+- hosts: all
+  gather_facts: yes
+
   tasks:
-    - name: Ensure /var/log is unmounted
-      command: umount /var/log
-      ignore_errors: yes  # If /var/log is not mounted, ignore the error
-    
-    - name: Create /var_log.img file (1GB)
-      command: "dd if=/dev/zero of=/var_log.img bs=100M count=10"
-      args:
-        creates: /var_log.img  # Skip if file already exists
+    - name: Check if /var/log is mounted
+      set_fact:
+        var_log_mounted: "{{ ansible_mounts | selectattr('mount', 'equalto', '/var/log') | list | length > 0 }}"
     
     - name: Format /var_log.img as xfs
-      command: "mkfs.xfs /var_log.img"
-      when: "'/var/log' not in ansible_mounts | map(attribute='mount') | list"  # Check if /var/log is not mounted
-    
-    - name: Mount /var_log.img to /var/log with the correct options
+      when: var_log_mounted == false
+      command: mkfs.xfs /var_log.img
+
+    - name: Mount /var/log if not mounted
+      when: var_log_mounted == false
       mount:
-        path: /var/log
+        name: /var/log
         src: /var_log.img
         fstype: xfs
-        opts: loop,rw,nosuid,nodev,noexec,relatime
+        opts: "loop,rw,nosuid,nodev,noexec,relatime"
         state: mounted
-    
-    - name: Ensure mount entry is present in /etc/fstab
-      lineinfile:
-        path: /etc/fstab
-        line: '/var_log.img /var/log xfs loop,rw,nosuid,nodev,noexec,relatime 0 0'
-        create: yes
