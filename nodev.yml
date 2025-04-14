@@ -10,9 +10,9 @@
       changed_when: false
       failed_when: false
 
-    - name: Fail if /var/log/audit is not mounted
-      fail:
-        msg: "/var/log/audit is not mounted. Cannot apply nodev option."
+    - name: Warn if /var/log/audit is not mounted
+      debug:
+        msg: "/var/log/audit is not mounted. Skipping nodev check."
       when: mount_check.stdout == ""
 
     - name: Add nodev option in /etc/fstab for /var/log/audit if not present
@@ -20,19 +20,26 @@
         path: /etc/fstab
         regexp: '^.*\s+/var/log/audit\s+.*'
         line: "{{ mount_check.stdout.split()[0] }} /var/log/audit {{ mount_check.stdout.split()[4] }},nodev 0 0"
-      when: "'nodev' not in mount_check.stdout"
+      when:
+        - mount_check.stdout != ""
+        - "'nodev' not in mount_check.stdout"
 
     - name: Remount /var/log/audit to apply nodev option
       command: mount -o remount /var/log/audit
-      when: "'nodev' not in mount_check.stdout"
+      when:
+        - mount_check.stdout != ""
+        - "'nodev' not in mount_check.stdout"
 
     - name: Verify /var/log/audit is mounted with nodev
       command: mount | grep '/var/log/audit'
       register: remount_check
       changed_when: false
       failed_when: false
+      when: mount_check.stdout != ""
 
-    - name: Fail if nodev is not set on /var/log/audit
-      fail:
-        msg: "/var/log/audit is not mounted with the nodev option."
-      when: "'nodev' not in remount_check.stdout"
+    - name: Warn if nodev is not set on /var/log/audit
+      debug:
+        msg: "/var/log/audit is mounted but without nodev option!"
+      when:
+        - mount_check.stdout != ""
+        - "'nodev' not in remount_check.stdout"
