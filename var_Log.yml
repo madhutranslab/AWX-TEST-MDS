@@ -34,10 +34,10 @@
       when: "'/var/log' in mount_check.stdout and 'nodev' not in mount_check.stdout"
 
     - name: Verify nodev is set on root or /var/log filesystem
-      command: mount | grep ' / '
+      command: mount
       register: verify_mount
       failed_when: "'nodev' not in verify_mount.stdout"
-      
+
     - name: Ensure the filesystem is mounted with nodev
       debug:
         msg: "The filesystem is now correctly mounted with the 'nodev' option."
