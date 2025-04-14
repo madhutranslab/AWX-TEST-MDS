@@ -1,49 +1,31 @@
 ---
-- name: Ensure nodev option is set on /var/log or root filesystem
+- name: Setup /var/log mount in AWX
   hosts: all
   become: true
-
   tasks:
-    - name: Check if root filesystem or /var/log is mounted with nodev
-      command: mount
-      register: mount_check
-      failed_when: false
-
-    - name: Set nodev on root partition if not already set
+    - name: Ensure /var/log is unmounted
+      command: umount /var/log
+      ignore_errors: yes  # If /var/log is not mounted, ignore the error
+    
+    - name: Create /var_log.img file (1GB)
+      command: "dd if=/dev/zero of=/var_log.img bs=100M count=10"
+      args:
+        creates: /var_log.img  # Skip if file already exists
+    
+    - name: Format /var_log.img as xfs
+      command: "mkfs.xfs /var_log.img"
+      when: ansible_facts['ansible_mounts'] is not search('/var/log')  # Only format if not formatted already
+    
+    - name: Mount /var_log.img to /var/log with the correct options
+      mount:
+        path: /var/log
+        src: /var_log.img
+        fstype: xfs
+        opts: loop,rw,nosuid,nodev,noexec,relatime
+        state: mounted
+    
+    - name: Ensure mount entry is present in /etc/fstab
       lineinfile:
         path: /etc/fstab
-        regexp: '^UUID=.* / '
-        line: 'UUID={{ ansible_mounts[0].uuid }} / xfs defaults,rw,nosuid,nodev,noexec,relatime 0 0'
+        line: '/var_log.img /var/log xfs loop,rw,nosuid,nodev,noexec,relatime 0 0'
         create: yes
-      when: "'nodev' not in mount_check.stdout"
-
-    - name: Set nodev on /var/log partition if not already set (for separate /var/log)
-      lineinfile:
-        path: /etc/fstab
-        regexp: '^UUID=.* /var/log '
-        line: 'UUID={{ ansible_mounts[1].uuid }} /var/log xfs defaults,rw,nosuid,nodev,noexec,relatime 0 0'
-        create: yes
-      when: "'nodev' not in mount_check.stdout"
-
-    - name: Remount root filesystem
-      command: mount -o remount /
-      when: "'nodev' not in mount_check.stdout"
-
-    - name: Remount /var/log if it's a separate partition
-      command: mount -o remount /var/log
-      when: "'/var/log' in mount_check.stdout and 'nodev' not in mount_check.stdout"
-
-    - name: Verify nodev is set on root or /var/log filesystem
-      command: mount
-      register: verify_mount
-      failed_when: "'nodev' not in verify_mount.stdout"
-
-    - name: Ensure the filesystem is mounted with nodev
-      debug:
-        msg: "The filesystem is now correctly mounted with the 'nodev' option."
-      when: "'nodev' in verify_mount.stdout"
-
-    - name: Fail if nodev is not set
-      fail:
-        msg: "The filesystem is not mounted with the 'nodev' option."
-      when: "'nodev' not in verify_mount.stdout"
