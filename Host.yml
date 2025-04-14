@@ -1,0 +1,6 @@
+---
+- name: Check the Hostname
+  hosts: all
+  tasks:
+    - name: Display current hostname
+      ansible.builtin.shell: hostname
