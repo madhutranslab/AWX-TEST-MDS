@@ -1,0 +1,40 @@
+---
+- name: Ensure nodev is set on /var/log/audit
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Create image file if it doesn't exist
+      command: dd if=/dev/zero of=/audit.img bs=1M count=100
+      args:
+        creates: /audit.img
+
+    - name: Format /audit.img as xfs if not already formatted
+      filesystem:
+        fstype: xfs
+        dev: /audit.img
+      when: audit_img_check.stat.exists == false
+      vars:
+        audit_img_check: "{{ lookup('ansible.builtin.stat', '/audit.img', get_attributes=True) }}"
+
+    - name: Ensure mount point exists
+      file:
+        path: /var/log/audit
+        state: directory
+        mode: '0755'
+
+    - name: Mount /var/log/audit with nodev
+      mount:
+        path: /var/log/audit
+        src: /audit.img
+        fstype: xfs
+        opts: loop,nodev,nosuid,noexec,relatime
+        state: mounted
+
+    - name: Ensure fstab entry exists
+      mount:
+        path: /var/log/audit
+        src: /audit.img
+        fstype: xfs
+        opts: loop,nodev,nosuid,noexec,relatime
+        state: present
