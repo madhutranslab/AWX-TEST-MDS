@@ -7,9 +7,9 @@
       set_fact:
         var_log_mounted: "{{ ansible_mounts | selectattr('mount', 'equalto', '/var/log') | list | length > 0 }}"
     
-    - name: Format /var_log.img as xfs
+    - name: Format /var_log.img as xfs (force overwrite)
       when: var_log_mounted == false
-      command: mkfs.xfs /var_log.img
+      command: mkfs.xfs -f /var_log.img
 
     - name: Mount /var/log if not mounted
       when: var_log_mounted == false
