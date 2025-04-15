@@ -1,0 +1,24 @@
+---
+- name: Fix GPG Key Vulnerability
+  hosts: all
+  become: yes
+  tasks:
+    - name: Remove the fake GPG key
+      command: rpm -e gpg-pubkey-bce0d33a-67fea1b0
+      ignore_errors: yes
+      register: remove_fake_key
+
+    - name: Add the correct GPG key for Red Hat
+      command: rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+      when: remove_fake_key is succeeded
+      register: add_gpg_key
+
+    - name: Verify the correct GPG key is present
+      command: rpm -q gpg-pubkey --qf "%{version}-%{release} --> %{summary}\n"
+      register: gpg_key_output
+
+    - name: Ensure the correct GPG key is added
+      assert:
+        that:
+          - "'Red Hat' in gpg_key_output.stdout"
+        msg: "The correct GPG key was not added"
