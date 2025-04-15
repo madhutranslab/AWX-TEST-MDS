@@ -5,11 +5,10 @@
   tasks:
 
     - name: Ensure use_pty is enforced in sudo
-      copy:
+      template:
+        src: use_pty.j2
         dest: /etc/sudoers.d/99-use-pty
-        content: |
-          Defaults use_pty
         owner: root
         group: root
         mode: '0440'
-      validate: '/usr/sbin/visudo -cf %s'
+        validate: '/usr/sbin/visudo -cf %s'
