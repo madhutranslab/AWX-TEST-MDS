@@ -1,14 +1,13 @@
 ---
-- name: Ensure sudo commands use PTY
+- name: Ensure sudo uses PTY
   hosts: all
-  become: true
+  become: yes
   tasks:
-
-    - name: Ensure use_pty is enforced in sudo
-      template:
-        src: use_pty.j2
+    - name: Create sudoers file to enforce use_pty
+      copy:
+        content: "Defaults use_pty\n"
         dest: /etc/sudoers.d/99-use-pty
         owner: root
         group: root
         mode: '0440'
-        validate: '/usr/sbin/visudo -cf %s'
+      validate: '/usr/sbin/visudo -cf %s'
