@@ -1,0 +1,32 @@
+---
+- name: Ensure nosuid is set on /dev/shm
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Backup fstab before making changes
+      copy:
+        src: /etc/fstab
+        dest: /etc/fstab.bak
+        remote_src: yes
+
+    - name: Ensure /dev/shm entry exists and has nosuid
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^tmpfs\s+/dev/shm'
+        line: 'tmpfs /dev/shm tmpfs defaults,rw,nosuid,nodev,noexec,relatime 0 0'
+        state: present
+        create: yes
+        backup: yes
+
+    - name: Remount /dev/shm with correct options
+      command: mount -o remount,rw,nosuid,nodev,noexec,relatime /dev/shm
+
+    - name: Verify mount options
+      shell: mount | grep /dev/shm
+      register: shm_status
+      changed_when: false
+
+    - name: Show updated /dev/shm mount options
+      debug:
+        var: shm_status.stdout
