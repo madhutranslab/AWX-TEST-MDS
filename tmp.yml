@@ -1,0 +1,19 @@
+---
+- name: Ensure /tmp is mounted with noexec
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Ensure /tmp entry exists in /etc/fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^tmpfs\s+/tmp\s+'
+        line: 'tmpfs /tmp tmpfs defaults,nosuid,nodev,noexec,relatime 0 0'
+        state: present
+        create: yes
+        backup: yes
+
+    - name: Remount /tmp to apply mount options
+      ansible.builtin.command: mount -o remount /tmp
+      register: remount_result
+      changed_when: "'not mounted' not in remount_result.stderr"
