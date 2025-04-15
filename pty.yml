@@ -1,10 +1,11 @@
-- name: Ensure sudo uses PTY
+- name: Configure sudo to use PTY
   hosts: all
   become: yes
   tasks:
     - name: Create sudoers file to enforce use_pty
       template:
-        content: "Defaults use_pty\n"
+        content: |
+          Defaults use_pty
         dest: /etc/sudoers.d/99-use-pty
         owner: root
         group: root
