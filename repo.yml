@@ -1,0 +1,29 @@
+---
+- name: Fix CIS 1.2.4 - Ensure package manager repositories are configured
+  hosts: all
+  become: true
+
+  tasks:
+
+    - name: Enable BaseOS repository
+      ansible.builtin.command:
+        cmd: subscription-manager repos --enable=rhel-8-for-x86_64-baseos-rpms
+      register: baseos_output
+      changed_when: "'enabled' in baseos_output.stdout"
+
+    - name: Enable AppStream repository
+      ansible.builtin.command:
+        cmd: subscription-manager repos --enable=rhel-8-for-x86_64-appstream-rpms
+      register: appstream_output
+      changed_when: "'enabled' in appstream_output.stdout"
+
+    - name: Clean DNF cache
+      ansible.builtin.command: dnf clean all
+
+    - name: Verify enabled repositories
+      ansible.builtin.command: dnf repolist
+      register: repo_check
+
+    - name: Show enabled repos
+      ansible.builtin.debug:
+        msg: "{{ repo_check.stdout_lines }}"
