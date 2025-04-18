@@ -1,0 +1,46 @@
+---
+- name: Disable cramfs kernel module securely
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Backup cramfs.conf if it exists
+      copy:
+        src: /etc/modprobe.d/cramfs.conf
+        dest: /etc/modprobe.d/cramfs.conf.bak
+        remote_src: yes
+      when: ansible_facts['distribution'] != 'Windows' and
+            ansible_facts['os_family'] != 'Windows' and
+            ansible_facts['distribution_file_variety'] != 'RedHat' or
+            ansible_facts['distribution_major_version'] | int >= 7
+      ignore_errors: yes
+
+    - name: Ensure cramfs is blacklisted
+      lineinfile:
+        path: /etc/modprobe.d/cramfs.conf
+        line: "blacklist cramfs"
+        create: yes
+        state: present
+
+    - name: Ensure cramfs is not loadable
+      lineinfile:
+        path: /etc/modprobe.d/cramfs.conf
+        line: "install cramfs /bin/false"
+        insertafter: EOF
+        create: yes
+        state: present
+
+    - name: Unload cramfs if currently loaded
+      shell: |
+        if lsmod | grep -q cramfs; then
+          modprobe -r cramfs
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Notify for manual reboot
+      debug:
+        msg: |
+          CramFS module has been disabled.
+          Please reboot the system manually to apply changes.
+
