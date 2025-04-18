@@ -1,0 +1,62 @@
+---
+- name: Detect unconfined SELinux services, log results, backup config file
+  hosts: all
+  become: true
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    unconfined_log: "/var/log/unconfined_services.log"
+    backup_log: "/var/log/unconfined_services_{{ timestamp }}.log"
+    config_file: "/etc/ssh/sshd_config"
+    config_backup: "/etc/ssh/sshd_config.bak_{{ timestamp }}"
+
+  tasks:
+
+    - name: Ensure /var/log directory exists
+      file:
+        path: /var/log
+        state: directory
+        mode: '0755'
+
+    - name: Backup sshd_config with timestamp
+      copy:
+        src: "{{ config_file }}"
+        dest: "{{ config_backup }}"
+        remote_src: yes
+      register: backup_result
+
+    - name: Print backup confirmation
+      debug:
+        msg: "Backup created at {{ config_backup }}"
+
+    - name: Check for services running in unconfined_service_t domain
+      shell: |
+        set -e
+        /bin/ps -eZ | /bin/grep unconfined_service_t || true
+      register: unconfined_services
+      changed_when: false
+
+    - name: Save unconfined services to timestamped log
+      copy:
+        content: |
+          [Detected on {{ timestamp }}]
+          {{ unconfined_services.stdout }}
+        dest: "{{ backup_log }}"
+
+    - name: Update main log with latest unconfined services
+      copy:
+        content: |
+          [Detected on {{ timestamp }}]
+          {{ unconfined_services.stdout }}
+        dest: "{{ unconfined_log }}"
+
+    - name: Show found unconfined services
+      debug:
+        msg: |
+          Unconfined services detected:
+          {{ unconfined_services.stdout | default('None') }}
+
+    - name: Manual reboot reminder
+      debug:
+        msg: |
+          Manual Reboot Required
+         
