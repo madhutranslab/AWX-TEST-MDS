@@ -1,0 +1,47 @@
+---
+- name: Harden DNF and YUM GPG Check Settings
+  hosts: all
+  become: yes
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    repo_dir: "/etc/yum.repos.d"
+
+  tasks:
+
+    - name: Ensure gpgcheck=1 in /etc/dnf/dnf.conf
+      lineinfile:
+        path: /etc/dnf/dnf.conf
+        regexp: '^gpgcheck\s*='
+        line: 'gpgcheck=1'
+        insertafter: '^\[main\]'
+        create: yes
+        backup: yes
+
+    - name: Find all .repo files
+      find:
+        paths: "{{ repo_dir }}"
+        patterns: "*.repo"
+      register: repo_files
+
+    - name: Backup .repo files with timestamp
+      copy:
+        src: "{{ item.path }}"
+        dest: "{{ item.path }}.bak_{{ timestamp }}"
+        remote_src: yes
+      loop: "{{ repo_files.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Ensure gpgcheck=1 in all .repo files
+      replace:
+        path: "{{ item.path }}"
+        regexp: '^gpgcheck\s*=.*'
+        replace: 'gpgcheck=1'
+        backup: no
+      loop: "{{ repo_files.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Manual Reboot Reminder
+      debug:
+        msg: "After executing the script, ensure to reboot the system for verification. ⚠️"
