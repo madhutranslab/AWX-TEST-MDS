@@ -1,58 +1,37 @@
 ---
-- name: Set GRUB2 bootloader password with backup and reboot
+- name: Ensure GRUB Bootloader Password is Set
   hosts: all
-  become: true
+  become: yes
+  vars:
+    grub_password: "{{ lookup('pipe', 'echo -n "my_secure_password" | grub2-setpassword') }}"
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+
   tasks:
-    - name: Backup existing GRUB2 configuration with timestamp
-      shell: |
-        TIMESTAMP=$(date +'%Y-%m-%d_%H-%M-%S')
-        cp /etc/grub.d/01_users /etc/grub.d/01_users.bak_{{ TIMESTAMP }}
-        cp /boot/grub2/grub.cfg /boot/grub2/grub.cfg.bak_{{ TIMESTAMP }}
-        cp /boot/efi/EFI/{{ ansible_facts['distribution'] }}/grub.cfg /boot/efi/EFI/{{ ansible_facts['distribution'] }}/grub.cfg.bak_{{ TIMESTAMP }}
-      register: backup_output
-      failed_when: backup_output.rc != 0
-      ignore_errors: false
+    - name: Set GRUB bootloader password
+      command: grub2-setpassword
+      args:
+        creates: /etc/grub.d/40_custom
+      register: grub_set_password
+      ignore_errors: yes
 
-    - name: Set GRUB2 password
-      shell: |
-        grub2-setpassword
-        echo "{{ grub_password }}" | grub2-setpassword
-      register: grub_password_output
-      failed_when: grub_password_output.rc != 0
-      ignore_errors: false
+    - name: Verify GRUB password is set
+      command: "grep -q 'GRUB2_PASSWORD' /etc/default/grub"
+      register: grub_password_check
+      changed_when: false
+      failed_when: grub_password_check.rc != 0
 
-    - name: Ensure GRUB2 password is correctly set in the config
-      shell: |
-        grep -q 'GRUB2_PASSWORD=' /boot/grub2/user.cfg
-        if [ $? -ne 0 ]; then
-          echo "GRUB2_PASSWORD={{ grub_password_hash }}" >> /boot/grub2/user.cfg
-        fi
-      register: check_grub_password
-      failed_when: check_grub_password.rc != 0
-      ignore_errors: false
+    - name: Backup /etc/default/grub before any changes
+      copy:
+        src: /etc/default/grub
+        dest: "/etc/default/grub.bak_{{ timestamp }}"
+        remote_src: yes
+      when: grub_password_check.rc == 0
 
-    - name: Regenerate GRUB2 config for BIOS systems
-      shell: |
-        grub2-mkconfig -o /boot/grub2/grub.cfg
-      when: ansible_facts['os_family'] == 'RedHat'
-      register: grub_bios_regen
-      failed_when: grub_bios_regen.rc != 0
+    - name: Ensure grub.cfg is updated with new password setting
+      command: grub2-mkconfig -o /boot/grub2/grub.cfg
+      when: grub_password_check.rc == 0
 
-    - name: Regenerate GRUB2 config for UEFI systems
-      shell: |
-        grub2-mkconfig -o /boot/efi/EFI/{{ ansible_facts['distribution'] }}/grub.cfg
-      when: ansible_facts['os_family'] == 'RedHat' and ansible_facts['bios'] == false
-      register: grub_uefi_regen
-      failed_when: grub_uefi_regen.rc != 0
-
-    - name: Reboot the system (manual verification required)
-      reboot:
-        reboot_timeout: 600
-        test_command: uptime
-      when: ansible_facts['os_family'] == 'RedHat'
-      register: reboot_result
-      failed_when: reboot_result.rc != 0
-
-    - name: Display message about manual reboot verification
-      debug:
-        msg: "Please manually reboot the system to verify the GRUB2 password setup."
+  handlers:
+    - name: Restart GRUB to apply changes
+      command: grub2-reboot
+      when: grub_password_check.rc == 0
