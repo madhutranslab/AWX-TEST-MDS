@@ -1,0 +1,59 @@
+---
+- name: Disable USB Storage Module Securely
+  hosts: all
+  become: true
+  vars:
+    modprobe_file: /etc/modprobe.d/usb-storage.conf
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    backup_file: "/etc/modprobe.d/usb-storage.conf.bak_{{ timestamp }}"
+
+  tasks:
+
+    - name: Check if modprobe config exists
+      ansible.builtin.stat:
+        path: "{{ modprobe_file }}"
+      register: modprobe_stat
+
+    - name: Backup existing usb-storage modprobe config with timestamp
+      ansible.builtin.command: >
+        cp -p "{{ modprobe_file }}" "{{ backup_file }}"
+      when: modprobe_stat.stat.exists
+      changed_when: true
+
+    - name: Disable usb-storage module with blacklist and install rule
+      ansible.builtin.copy:
+        dest: "{{ modprobe_file }}"
+        content: |
+          install usb-storage /bin/false
+          blacklist usb-storage
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Ensure usb-storage module is unloaded if currently loaded
+      ansible.builtin.shell: |
+        set -e
+        if lsmod | grep -q '^usb_storage'; then
+          modprobe -r usb-storage
+        fi
+      args:
+        warn: false
+
+    - name: Check if usb-storage module is still loadable
+      ansible.builtin.shell: |
+        set -e
+        modprobe -n -v usb-storage
+      register: usb_modprobe_check
+      changed_when: false
+
+    - name: Fail if usb-storage is still loadable
+      ansible.builtin.fail:
+        msg: "usb-storage module is still loadable! Please verify the configuration."
+      when: "'insmod' in usb_modprobe_check.stdout"
+
+    - name: Display manual reboot reminder
+      ansible.builtin.debug:
+        msg: |
+          USB storage module has been disabled.
+          ✅ Please reboot the system manually to apply changes and ensure enforcement.
+          📁 Backup created at: {{ backup_file }}
