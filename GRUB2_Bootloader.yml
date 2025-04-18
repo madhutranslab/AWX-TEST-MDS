@@ -3,8 +3,8 @@
   hosts: all
   become: yes
   vars:
-    grub_password: "{{ lookup('pipe', 'echo -n "my_secure_password" | grub2-setpassword') }}"
-    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"  # Define the timestamp here
+    grub_password: "{{ lookup('pipe', 'echo -n \"my_secure_password\" | grub2-setpassword') }}"
 
   tasks:
     - name: Set GRUB bootloader password
@@ -23,7 +23,7 @@
     - name: Backup /etc/default/grub before any changes
       copy:
         src: /etc/default/grub
-        dest: "/etc/default/grub.bak_{{ timestamp }}"
+        dest: "/etc/default/grub.bak_{{ timestamp }}"  # Ensure timestamp is quoted
         remote_src: yes
       when: grub_password_check.rc == 0
 
