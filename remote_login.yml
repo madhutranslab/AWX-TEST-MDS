@@ -1,0 +1,46 @@
+---
+- name: CIS 1.7.3 - Ensure remote login warning banner is configured properly
+  hosts: all
+  become: yes
+  vars:
+    issue_net_file: /etc/issue.net
+    banner_text: "Authorized users only. All activity may be monitored and reported."
+
+  tasks:
+    - name: Generate current timestamp
+      command: date +%Y-%m-%d_%H-%M-%S
+      register: timestamp_cmd
+      changed_when: false
+
+    - name: Set timestamp fact
+      set_fact:
+        timestamp: "{{ timestamp_cmd.stdout }}"
+
+    - name: Backup /etc/issue.net with timestamp
+      copy:
+        src: "{{ issue_net_file }}"
+        dest: "{{ issue_net_file }}.bak_{{ timestamp }}"
+        remote_src: yes
+      when: issue_net_file is file
+
+    - name: Set CIS-compliant banner in /etc/issue.net
+      copy:
+        dest: "{{ issue_net_file }}"
+        content: "{{ banner_text }}\n"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Validate /etc/issue.net does not contain \m \r \s \v
+      shell: "grep -P '\\\\[mrsv]' {{ issue_net_file }}"
+      register: grep_result
+      failed_when: grep_result.rc == 0
+      changed_when: false
+      ignore_errors: no
+
+    - name: Display success message
+      debug:
+        msg: |
+          ✅ CIS 1.7.3 issue.net banner remediated.
+          Backup saved as: {{ issue_net_file }}.bak_{{ timestamp }}
+          Please reboot the system manually for final verification.
