@@ -1,0 +1,50 @@
+---
+- name: CIS 1.7.2 - Ensure local login warning banner is configured properly
+  hosts: all
+  become: true
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    issue_file: "/etc/issue"
+    issue_backup: "/etc/issue.bak_{{ timestamp }}"
+    expected_banner: "Authorized users only. All activity may be monitored and reported."
+
+  tasks:
+
+    - name: Ensure backup of /etc/issue is made with timestamp
+      copy:
+        src: "{{ issue_file }}"
+        dest: "{{ issue_backup }}"
+        remote_src: yes
+      register: backup_result
+
+    - name: Print backup location
+      debug:
+        msg: "🔁 Backup of /etc/issue saved as {{ issue_backup }}"
+
+    - name: Remove any references to [m r s v] or OS platform in /etc/issue
+      replace:
+        path: "{{ issue_file }}"
+        regexp: '[\\\]?\\?[mrsv]'
+        replace: ''
+      register: removal_result
+      failed_when: removal_result.failed
+
+    - name: Overwrite /etc/issue with required CIS warning banner
+      copy:
+        content: "{{ expected_banner }}\n"
+        dest: "{{ issue_file }}"
+        mode: '0644'
+        force: true
+      register: banner_update
+
+    - name: Show banner update result
+      debug:
+        msg: "✅ Login banner updated to comply with CIS 1.7.2"
+
+    - name: Manual reboot reminder
+      debug:
+        msg: |
+          🔄 Manual Reboot Required
+          ➤ Please reboot the system to verify banner takes effect.
+          ➤ Backup created at: {{ issue_backup }}
+          ➤ Current banner: '{{ expected_banner }}'
