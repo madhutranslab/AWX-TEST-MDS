@@ -1,0 +1,44 @@
+---
+- name: Disable jffs2 kernel module
+  hosts: all
+  become: yes
+  vars:
+    module_name: jffs2
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    modprobe_conf: "/etc/modprobe.d/{{ module_name }}.conf"
+    backup_path: "{{ modprobe_conf }}.bak_{{ timestamp }}"
+
+  tasks:
+
+    - name: Check if module config exists
+      stat:
+        path: "{{ modprobe_conf }}"
+      register: modprobe_conf_stat
+
+    - name: Backup existing config with timestamp
+      copy:
+        src: "{{ modprobe_conf }}"
+        dest: "{{ backup_path }}"
+        remote_src: yes
+      when: modprobe_conf_stat.stat.exists
+
+    - name: Create modprobe config to disable {{ module_name }}
+      copy:
+        dest: "{{ modprobe_conf }}"
+        content: |
+          install {{ module_name }} /bin/false
+          blacklist {{ module_name }}
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Unload jffs2 module if loaded
+      shell: |
+        set -e
+        lsmod | grep -w {{ module_name }} && modprobe -r {{ module_name }} || echo "Module not loaded"
+      register: unload_result
+      changed_when: "'Module not loaded' not in unload_result.stdout"
+
+    - name: Inform user to reboot the system manually
+      debug:
+        msg: "Module {{ module_name }} has been disabled. Please reboot the system manually to complete remediation."
