@@ -1,0 +1,62 @@
+---
+- name: CIS 2.1.2 - Ensure chrony is configured
+  hosts: all
+  become: yes
+  vars:
+    chrony_conf: /etc/chrony.conf
+    chrony_d_dir: /etc/chrony.d
+    server_ip: "10.0.0.2"  # Update to your desired NTP server or pool IP
+    timestamp: "{{ ansible_date_time.iso8601_basic }}"
+
+  tasks:
+    - name: Generate timestamp for backup
+      command: date +%Y-%m-%d_%H-%M-%S
+      register: timestamp_cmd
+      changed_when: false
+
+    - name: Set timestamp fact
+      set_fact:
+        timestamp: "{{ timestamp_cmd.stdout }}"
+
+    - name: Backup /etc/chrony.conf with timestamp
+      copy:
+        src: "{{ chrony_conf }}"
+        dest: "{{ chrony_conf }}.bak_{{ timestamp }}"
+        remote_src: yes
+      when: chrony_conf is file
+
+    - name: Backup /etc/chrony.d files with timestamp
+      command: >
+        cp -r /etc/chrony.d /etc/chrony.d.bak_{{ timestamp }}
+      when: chrony_d_dir is directory
+
+    - name: Ensure server or pool line is present in /etc/chrony.conf
+      lineinfile:
+        path: "{{ chrony_conf }}"
+        regexp: '^#?server\s+{{ server_ip }}\s*'
+        line: "server {{ server_ip }} iburst"
+        create: yes
+        backup: yes
+        mode: '0644'
+
+    - name: Ensure server or pool line is present in files under /etc/chrony.d/
+      lineinfile:
+        path: "{{ item }}"
+        regexp: '^#?server\s+{{ server_ip }}\s*'
+        line: "server {{ server_ip }} iburst"
+        create: yes
+        backup: yes
+        mode: '0644'
+      loop: "{{ lookup('fileglob', '/etc/chrony.d/*') }}"
+      when: ansible_facts['os_family'] == 'Linux'
+
+    - name: Validate chrony configuration
+      command: chronyc sources
+      register: chrony_sources
+      failed_when: "'10.0.0.2' not in chrony_sources.stdout"
+      changed_when: false
+
+    - name: Display success message
+      debug:
+        msg: |
+          Please reboot the system manually for final verification.
