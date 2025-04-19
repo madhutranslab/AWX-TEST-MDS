@@ -13,6 +13,7 @@
       package:
         name: libselinux-utils
         state: present
+        manager: "{{ 'dnf' if ansible_facts['os_family'] == 'RedHat' and ansible_facts['distribution_major_version'] | int >= 8 else 'yum' }}"
       when: ansible_facts['os_family'] == "RedHat"
 
     - name: Create timestamped backup of SELinux config
