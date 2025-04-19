@@ -3,37 +3,46 @@
   hosts: all
   become: yes
   tasks:
-    - name: Backup existing systemd coredump configuration
+    - name: Ensure backup directory exists
+      file:
+        path: /etc/systemd/coredump.conf.d
+        state: directory
+        mode: '0755'
+
+    - name: Backup existing coredump conf if present
       shell: |
         set -e
-        timestamp=$(date +%F_%T)
-        cp /etc/systemd/coredump.conf /etc/systemd/coredump.conf.bak_$timestamp
+        FILE="/etc/systemd/coredump.conf.d/custom.conf"
+        if [ -f "$FILE" ]; then
+          timestamp=$(date +%F_%T)
+          cp "$FILE" "${FILE}.bak_$timestamp"
+        fi
+      args:
+        executable: /bin/bash
       register: backup_result
-      ignore_errors: yes
-      failed_when: backup_result.rc != 0
+      changed_when: backup_result.rc == 0
+      ignore_errors: true
 
-    - name: Ensure ProcessSizeMax is set to 0 in /etc/systemd/coredump.conf
-      lineinfile:
-        path: /etc/systemd/coredump.conf
-        line: "ProcessSizeMax=0"
-        create: yes
-      notify: Apply coredump configuration changes
+    - name: Configure ProcessSizeMax to 0
+      copy:
+        dest: /etc/systemd/coredump.conf.d/custom.conf
+        content: |
+          [Coredump]
+          ProcessSizeMax=0
+        owner: root
+        group: root
+        mode: '0644'
 
-    - name: Verify ProcessSizeMax is set to 0
-      command: grep -i "ProcessSizeMax" /etc/systemd/coredump.conf
-      register: coredump_value
+    - name: Check current ProcessSizeMax setting
+      command: grep -i ProcessSizeMax /etc/systemd/coredump.conf.d/custom.conf
+      register: current_setting
       changed_when: false
 
-    - name: Display current ProcessSizeMax value
+    - name: Show current ProcessSizeMax value
       debug:
-        msg: "Current ProcessSizeMax value: {{ coredump_value.stdout }}"
-
-  handlers:
-    - name: Apply coredump configuration changes
-      systemd:
-        name: systemd-coredump
-        state: restarted
+        msg: "Current ProcessSizeMax value: {{ current_setting.stdout }}"
 
     - name: Reminder to reboot system for changes to take effect
       debug:
-        msg: "Please reboot the system manually to apply the coredump configuration changes."
+        msg: "Please reboot the system manually to apply core dump configuration changes."
+
