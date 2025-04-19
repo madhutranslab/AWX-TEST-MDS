@@ -1,0 +1,53 @@
+---
+- name: Disable squashfs module securely
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    squashfs_conf: /etc/modprobe.d/squashfs.conf
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    squashfs_backup: "{{ squashfs_conf }}.bak_{{ timestamp }}"
+
+  tasks:
+
+    - name: Ensure squashfs config file exists
+      file:
+        path: "{{ squashfs_conf }}"
+        state: touch
+        mode: '0644'
+
+    - name: Backup squashfs config file with timestamp
+      copy:
+        src: "{{ squashfs_conf }}"
+        dest: "{{ squashfs_backup }}"
+        remote_src: true
+      when: squashfs_conf is file
+      notify: Log backup message
+
+    - name: Add 'install squashfs /bin/false' to config
+      lineinfile:
+        path: "{{ squashfs_conf }}"
+        line: "install squashfs /bin/false"
+        create: yes
+        state: present
+        insertafter: EOF
+
+    - name: Add 'blacklist squashfs' to config
+      lineinfile:
+        path: "{{ squashfs_conf }}"
+        line: "blacklist squashfs"
+        create: yes
+        state: present
+        insertafter: EOF
+
+    - name: Display message to manually reboot the system
+      debug:
+        msg: |
+          squashfs has been disabled.
+          A manual reboot is required to fully apply the changes.
+
+  handlers:
+    - name: Log backup message
+      debug:
+        msg: "Backup created at {{ squashfs_backup }}"
