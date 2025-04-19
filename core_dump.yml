@@ -1,0 +1,39 @@
+---
+- name: Ensure core dump backtraces are disabled
+  hosts: all
+  become: yes
+  tasks:
+    - name: Backup existing systemd coredump configuration
+      shell: |
+        set -e
+        timestamp=$(date +%F_%T)
+        cp /etc/systemd/coredump.conf /etc/systemd/coredump.conf.bak_$timestamp
+      register: backup_result
+      ignore_errors: yes
+      failed_when: backup_result.rc != 0
+
+    - name: Ensure ProcessSizeMax is set to 0 in /etc/systemd/coredump.conf
+      lineinfile:
+        path: /etc/systemd/coredump.conf
+        line: "ProcessSizeMax=0"
+        create: yes
+      notify: Apply coredump configuration changes
+
+    - name: Verify ProcessSizeMax is set to 0
+      command: grep -i "ProcessSizeMax" /etc/systemd/coredump.conf
+      register: coredump_value
+      changed_when: false
+
+    - name: Display current ProcessSizeMax value
+      debug:
+        msg: "Current ProcessSizeMax value: {{ coredump_value.stdout }}"
+
+  handlers:
+    - name: Apply coredump configuration changes
+      systemd:
+        name: systemd-coredump
+        state: restarted
+
+    - name: Reminder to reboot system for changes to take effect
+      debug:
+        msg: "Please reboot the system manually to apply the coredump configuration changes."
