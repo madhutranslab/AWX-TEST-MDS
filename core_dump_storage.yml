@@ -1,0 +1,48 @@
+---
+- name: Ensure core dump storage is disabled
+  hosts: all
+  become: yes
+  tasks:
+    - name: Ensure drop-in config directory exists
+      file:
+        path: /etc/systemd/coredump.conf.d
+        state: directory
+        mode: '0755'
+
+    - name: Backup existing coredump config file (if any)
+      shell: |
+        FILE="/etc/systemd/coredump.conf.d/custom.conf"
+        if [ -f "$FILE" ]; then
+          timestamp=$(date +%F_%T)
+          cp "$FILE" "${FILE}.bak_$timestamp"
+        fi
+      args:
+        executable: /bin/bash
+      register: backup_storage
+      changed_when: backup_storage.rc == 0
+      ignore_errors: true
+
+    - name: Configure Storage=none
+      blockinfile:
+        path: /etc/systemd/coredump.conf.d/custom.conf
+        block: |
+          [Coredump]
+          Storage=none
+        marker: "# {mark} Ansible managed block - core dump storage"
+        create: yes
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Check current Storage setting
+      command: grep -i Storage /etc/systemd/coredump.conf.d/custom.conf
+      register: storage_setting
+      changed_when: false
+
+    - name: Show current Storage value
+      debug:
+        msg: "Current Storage setting: {{ storage_setting.stdout }}"
+
+    - name: Reminder to reboot system for changes to take effect
+      debug:
+        msg: "Manual reboot required to apply core dump Storage=none setting."
