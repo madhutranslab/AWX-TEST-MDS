@@ -1,0 +1,48 @@
+---
+- name: Remediate CIS 1.5.1.4 - Ensure SELinux is not disabled
+  hosts: all
+  become: true
+  vars:
+    selinux_config: /etc/selinux/config
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+  tasks:
+
+    - name: Backup SELinux config with timestamp
+      copy:
+        src: "{{ selinux_config }}"
+        dest: "{{ selinux_config }}.bak_{{ timestamp }}"
+        remote_src: true
+
+    - name: Set SELINUX to enforcing in config file
+      replace:
+        path: "{{ selinux_config }}"
+        regexp: '^(SELINUX=).*'
+        replace: '\1enforcing'
+
+    - name: Ensure SELINUXTYPE is set to targeted
+      replace:
+        path: "{{ selinux_config }}"
+        regexp: '^(SELINUXTYPE=).*'
+        replace: '\1targeted'
+
+    - name: Print message for manual reboot
+      debug:
+        msg: |
+          SELinux configuration updated to 'enforcing'.
+          Reboot the system manually for changes to take effect.
+          Backup saved as {{ selinux_config }}.bak_{{ timestamp }}
+
+    - name: Try to enable SELinux runtime enforcing (only works if SELinux was not disabled)
+      command: setenforce 1
+      ignore_errors: true
+      register: enforcing_status
+
+    - name: Show runtime SELinux status
+      command: getenforce
+      register: selinux_status
+      ignore_errors: true
+
+    - name: Show runtime SELinux result (if any)
+      debug:
+        var: selinux_status.stdout
+      when: selinux_status.stdout is defined
