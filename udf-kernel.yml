@@ -1,0 +1,47 @@
+---
+- name: Disable udf kernel module (CIS 1.1.1.7)
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Backup existing udf.conf with timestamp if it exists
+      shell: |
+        if [ -f /etc/modprobe.d/udf.conf ]; then
+          cp /etc/modprobe.d/udf.conf /etc/modprobe.d/udf.conf.bak_$(date +%F_%H-%M-%S)
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Create modprobe config to disable udf module
+      copy:
+        dest: "/etc/modprobe.d/udf.conf"
+        content: |
+          install udf /bin/false
+          blacklist udf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Unload udf module if it is currently loaded
+      shell: |
+        if lsmod | grep -q '^udf'; then
+          modprobe -r udf
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Check if udf module exists in current kernel
+      shell: find /lib/modules/$(uname -r)/kernel/fs -type f -name udf.ko*
+      register: udf_module_check
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Debug - udf module found
+      debug:
+        msg: "udf module found in kernel: {{ udf_module_check.stdout_lines }}"
+      when: udf_module_check.stdout != ""
+
+    - name: Reboot system if udf was loaded and removed
+      reboot:
+        msg: "Rebooting to complete udf module unload"
+      when: udf_module_check.stdout != ""
