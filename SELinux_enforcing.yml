@@ -1,0 +1,50 @@
+---
+- name: Ensure SELinux is in enforcing mode (with timestamped backup)
+  hosts: all
+  become: yes
+  vars:
+    selinux_config_path: /etc/selinux/config
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    selinux_backup_file: "{{ selinux_config_path }}.bak_{{ timestamp }}"
+
+  tasks:
+
+    - name: Ensure SELinux tools are installed
+      package:
+        name: libselinux-utils
+        state: present
+      when: ansible_facts['os_family'] == "RedHat"
+
+    - name: Create timestamped backup of SELinux config
+      copy:
+        src: "{{ selinux_config_path }}"
+        dest: "{{ selinux_backup_file }}"
+        remote_src: yes
+      when: selinux_config_path is file
+
+    - name: Set SELinux to enforcing in config file
+      lineinfile:
+        path: "{{ selinux_config_path }}"
+        regexp: '^SELINUX='
+        line: 'SELINUX=enforcing'
+        state: present
+        backrefs: yes
+
+    - name: Check current SELinux status
+      command: getenforce
+      register: selinux_status
+      failed_when: false
+      changed_when: false
+
+    - name: Set SELinux to enforcing immediately if in Permissive mode
+      command: setenforce 1
+      when: selinux_status.stdout == "Permissive"
+
+    - name: Display current SELinux status
+      debug:
+        msg: "Current SELinux status: {{ selinux_status.stdout }}"
+
+    - name: Reminder to manually reboot if SELinux was disabled
+      debug:
+        msg: "Manual reboot required to apply SELinux changes. SELinux was: {{ selinux_status.stdout }}"
+      when: selinux_status.stdout == "Disabled"
