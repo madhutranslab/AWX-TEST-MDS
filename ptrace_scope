@@ -1,0 +1,41 @@
+---
+- name: Ensure ptrace_scope is restricted
+  hosts: all
+  become: yes
+  tasks:
+    - name: Backup existing sysctl configuration
+      shell: |
+        set -e
+        timestamp=$(date +%F_%T)
+        cp /etc/sysctl.d/60-kernel_sysctl.conf /etc/sysctl.d/60-kernel_sysctl.conf.bak_$timestamp
+      register: backup_result
+      ignore_errors: yes
+      failed_when: backup_result.rc != 0
+
+    - name: Ensure kernel.yama.ptrace_scope is set to 1
+      lineinfile:
+        path: /etc/sysctl.d/60-kernel_sysctl.conf
+        line: "kernel.yama.ptrace_scope = 1"
+        create: yes
+      notify: Apply sysctl changes
+
+    - name: Check current kernel.yama.ptrace_scope setting
+      command: sysctl kernel.yama.ptrace_scope
+      register: sysctl_value
+      changed_when: false
+
+    - name: Display current kernel.yama.ptrace_scope value
+      debug:
+        msg: "Current kernel.yama.ptrace_scope value: {{ sysctl_value.stdout }}"
+
+  handlers:
+    - name: Apply sysctl changes
+      sysctl:
+        name: kernel.yama.ptrace_scope
+        value: '1'
+        state: present
+        reload: yes
+
+    - name: Reminder to reboot system for changes to take effect
+      debug:
+        msg: "Please reboot the system manually to apply the ptrace_scope configuration changes."
