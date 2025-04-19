@@ -7,7 +7,7 @@
       shell: |
         set -e
         timestamp=$(date +%F_%T)
-        cp /etc/sysctl.d/60-kernel_sysctl.conf /etc/sysctl.d/60-kernel_sysctl.conf.bak_$timestamp
+        cp /etc/sysctl.d/60-kernel_sysctl.conf /etc/sysctl.d/60-kernel_sysctl.conf.bak_$(date +%F_%T)
       register: backup_result
       ignore_errors: yes
       failed_when: backup_result.rc != 0
@@ -39,4 +39,3 @@
     - name: Reminder to reboot system for changes to take effect
       debug:
         msg: "Please reboot the system manually to apply the ASLR configuration changes."
-
