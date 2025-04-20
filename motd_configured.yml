@@ -1,32 +1,45 @@
 ---
-- name: Ensure /etc/motd is configured correctly
-  hosts: all
+- hosts: all
   become: yes
-  gather_facts: yes  # Explicitly gather facts
+  vars:
+    # Specify your site-specific banner text here. If empty, /etc/motd will be removed.
+    motd_content: |
+      WARNING: Unauthorized access to this system is prohibited.
+      Company XYZ monitors all activity on this system.
+      All activity is logged and audited.
   tasks:
-    - name: Backup /etc/motd with timestamp
-      command: "cp /etc/motd /etc/motd.bak_{{ ansible_date_time.iso8601_basic }}"
-      when: ansible_facts['ansible_os_family'] == 'Linux' and ansible_facts['ansible_distribution'] in ['Ubuntu', 'Debian', 'CentOS', 'RedHat']
+    - name: "Backup existing /etc/motd with timestamp"
+      ansible.builtin.shell: |
+        if [ -f /etc/motd ]; then
+          cp /etc/motd /etc/motd.bak_$(date +"%Y-%m-%d_%H-%M-%S")
+        fi
+      args:
+        warn: false
+      when: ansible_facts['os_family'] != ''
+      tags:
+        - backup
 
-    - name: Ensure /etc/motd has the correct contents
-      copy:
+    - name: "Configure /etc/motd with site policy banner"
+      ansible.builtin.copy:
+        content: "{{ motd_content }}"
         dest: /etc/motd
-        content: |
-          Authorized access only. Unauthorized access will be prosecuted.
-          System monitoring is in place. All activities are logged.
         owner: root
         group: root
         mode: '0644'
-      when: ansible_facts['ansible_os_family'] == 'Linux' and ansible_facts['ansible_distribution'] in ['Ubuntu', 'Debian', 'CentOS', 'RedHat']
+      when: motd_content | length > 0
+      tags:
+        - configure
 
-    - name: Remove /etc/motd if not required
-      file:
+    - name: "Remove /etc/motd if banner not used"
+      ansible.builtin.file:
         path: /etc/motd
         state: absent
-      when: ansible_facts['ansible_os_family'] == 'Linux' and ansible_facts['ansible_distribution'] in ['Ubuntu', 'Debian', 'CentOS', 'RedHat'] and remove_motd is defined and remove_motd
+      when: motd_content | length == 0
+      tags:
+        - remove
 
-    - name: Reboot the system if motd is modified
-      reboot:
-        reboot_timeout: 600
-        test_command: whoami
-      when: ansible_facts['ansible_os_family'] == 'Linux' and ansible_facts['ansible_distribution'] in ['Ubuntu', 'Debian', 'CentOS', 'RedHat']
+    - name: "Reminder - Manual reboot required to verify changes"
+      ansible.builtin.debug:
+        msg: "Manual reboot is required after script execution to verify changes."
+      tags:
+        - notice
