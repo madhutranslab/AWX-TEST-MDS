@@ -1,0 +1,31 @@
+---
+- name: Ensure /etc/motd is configured correctly
+  hosts: all
+  become: yes
+  tasks:
+    - name: Backup /etc/motd with timestamp
+      command: "cp /etc/motd /etc/motd.bak_{{ ansible_date_time.iso8601_basic }}"
+      when: ansible_facts['ansible_os_family'] == 'Linux' and ansible_facts['ansible_distribution'] in ['Ubuntu', 'Debian', 'CentOS', 'RedHat']
+
+    - name: Ensure /etc/motd has the correct contents
+      copy:
+        dest: /etc/motd
+        content: |
+          Authorized access only. Unauthorized access will be prosecuted.
+          System monitoring is in place. All activities are logged.
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_facts['ansible_os_family'] == 'Linux' and ansible_facts['ansible_distribution'] in ['Ubuntu', 'Debian', 'CentOS', 'RedHat']
+
+    - name: Remove /etc/motd if not required
+      file:
+        path: /etc/motd
+        state: absent
+      when: ansible_facts['ansible_os_family'] == 'Linux' and ansible_facts['ansible_distribution'] in ['Ubuntu', 'Debian', 'CentOS', 'RedHat'] and remove_motd is defined and remove_motd
+
+    - name: Reboot the system if motd is modified
+      reboot:
+        reboot_timeout: 600
+        test_command: whoami
+      when: ansible_facts['ansible_os_family'] == 'Linux' and ansible_facts['ansible_distribution'] in ['Ubuntu', 'Debian', 'CentOS', 'RedHat']
