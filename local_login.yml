@@ -1,0 +1,39 @@
+---
+- hosts: all
+  become: yes
+  vars:
+    # Issue banner for local terminal login
+    issue_content: |
+      WARNING: Authorized users only. All activities may be monitored and reported by Company XYZ.
+
+  tasks:
+    - name: "Backup existing /etc/issue with timestamp"
+      ansible.builtin.shell: |
+        if [ -f /etc/issue ]; then
+          cp /etc/issue /etc/issue.bak_$(date +"%Y-%m-%d_%H-%M-%S")
+        fi
+      args:
+        warn: false
+      tags: [backup, issue]
+
+    - name: "Configure /etc/issue with site policy banner"
+      ansible.builtin.copy:
+        content: "{{ issue_content }}"
+        dest: /etc/issue
+        owner: root
+        group: root
+        mode: '0644'
+      when: issue_content | length > 0
+      tags: [configure, issue]
+
+    - name: "Remove /etc/issue if banner not used"
+      ansible.builtin.file:
+        path: /etc/issue
+        state: absent
+      when: issue_content | length == 0
+      tags: [remove, issue]
+
+    - name: "Reminder - Manual reboot required to verify changes"
+      ansible.builtin.debug:
+        msg: "Manual reboot is required after script execution to verify changes."
+      tags: [notice]
