@@ -1,0 +1,79 @@
+---
+- hosts: all
+  become: yes
+  vars:
+    gdm_profile_name: gdm
+    banner_message: |
+      Authorized users only. All activity may be monitored and reported.
+    dconf_profile_dir: "/etc/dconf/profile"
+    dconf_db_dir: "/etc/dconf/db/{{ gdm_profile_name }}.d"
+    keyfile: "{{ dconf_db_dir }}/01-banner-message"
+
+  tasks:
+    - name: Check if GDM is installed
+      shell: rpm -q gdm
+      register: gdm_installed
+      ignore_errors: true
+      changed_when: false
+
+    - name: Backup GDM dconf files with timestamp
+      shell: |
+        timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
+        mkdir -p /root/backup-gdm
+        if [ -f "{{ dconf_profile_dir }}/{{ gdm_profile_name }}" ]; then
+          cp "{{ dconf_profile_dir }}/{{ gdm_profile_name }}" "/root/backup-gdm/{{ gdm_profile_name }}.profile_${timestamp}.bak"
+        fi
+        if [ -d "{{ dconf_db_dir }}" ]; then
+          cp -r "{{ dconf_db_dir }}" "/root/backup-gdm/{{ gdm_profile_name }}.d_${timestamp}.bak"
+        fi
+      when: gdm_installed.rc == 0
+      args:
+        warn: false
+
+    - name: Ensure dconf profile exists
+      copy:
+        dest: "{{ dconf_profile_dir }}/{{ gdm_profile_name }}"
+        content: |
+          user-db:user
+          system-db:{{ gdm_profile_name }}
+          file-db:/usr/share/{{ gdm_profile_name }}/greeter-dconf-defaults
+      when: gdm_installed.rc == 0
+
+    - name: Ensure dconf database directory exists
+      file:
+        path: "{{ dconf_db_dir }}"
+        state: directory
+      when: gdm_installed.rc == 0
+
+    - name: Configure banner-message-enable
+      blockinfile:
+        path: "{{ keyfile }}"
+        create: yes
+        block: |
+          [org/gnome/login-screen]
+          banner-message-enable=true
+        marker: ""
+      when: gdm_installed.rc == 0 and banner_message | length > 0
+
+    - name: Configure banner-message-text
+      blockinfile:
+        path: "{{ keyfile }}"
+        insertafter: '^banner-message-enable=true'
+        block: "banner-message-text='{{ banner_message }}'"
+        marker: ""
+      when: gdm_installed.rc == 0 and banner_message | length > 0
+
+    - name: Remove GDM banner settings if no message
+      file:
+        path: "{{ keyfile }}"
+        state: absent
+      when: gdm_installed.rc == 0 and banner_message | length == 0
+
+    - name: Update dconf database
+      command: dconf update
+      when: gdm_installed.rc == 0
+
+    - name: Manual reboot reminder
+      debug:
+        msg: "After running this playbook, reboot the system to apply GDM banner changes and verify."
+      when: gdm_installed.rc == 0
