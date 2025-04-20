@@ -1,0 +1,45 @@
+---
+- name: Ensure system-wide crypto policy disables SHA1 hash and signature support
+  hosts: all
+  become: yes
+  vars:
+    sha1_policy_module_path: /etc/crypto-policies/policies/modules/NO-SHA1.pmod
+    sha1_policy_content: |
+      # This is a subpolicy dropping the SHA1 hash and signature support
+      hash = -SHA1
+      sign = -*-SHA1
+      sha1_in_certs = 0
+    crypto_policy: "DEFAULT:NO-SHA1"
+
+  tasks:
+    - name: Backup existing SHA1 policy module (if exists)
+      copy:
+        src: "{{ sha1_policy_module_path }}"
+        dest: "{{ sha1_policy_module_path }}.bak_{{ ansible_date_time.iso8601 }}"
+        remote_src: yes
+      when: ansible_facts['os_family'] == 'RedHat' and
+            ansible_facts['distribution_major_version']|int >= 8 and
+            ansible_facts['distribution'] != "Fedora"
+      ignore_errors: yes
+
+    - name: Ensure NO-SHA1.pmod file is created with correct contents
+      copy:
+        dest: "{{ sha1_policy_module_path }}"
+        content: "{{ sha1_policy_content }}"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reboot system to apply crypto policy
+
+    - name: Apply updated crypto policy
+      command: update-crypto-policies --set {{ crypto_policy }}
+      register: crypto_policy_set
+      changed_when: "'Setting system policy to' in crypto_policy_set.stdout"
+      notify: Reboot system to apply crypto policy
+
+  handlers:
+    - name: Reboot system to apply crypto policy
+      reboot:
+        msg: "Rebooting to apply crypto policy changes"
+        pre_reboot_delay: 5
+        reboot_timeout: 600
