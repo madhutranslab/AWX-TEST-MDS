@@ -1,0 +1,32 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: "Check if GDM is installed"
+      ansible.builtin.shell: rpm -q gdm
+      register: gdm_installed
+      ignore_errors: true
+      changed_when: false
+      tags: [check, gdm]
+
+    - name: "Backup GDM config with timestamp if exists"
+      ansible.builtin.shell: |
+        mkdir -p /root/backup-gdm
+        timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
+        cp -r /etc/gdm /root/backup-gdm/gdm_backup_$timestamp
+      when: gdm_installed.rc == 0 and ansible_facts['distribution'] == 'RedHat'
+      tags: [backup, gdm]
+      ignore_errors: true
+
+    - name: "Remove gdm package if installed"
+      ansible.builtin.yum:
+        name: gdm
+        state: absent
+      when: gdm_installed.rc == 0
+      tags: [removal, gdm]
+
+    - name: "Reminder - Manual reboot required to complete GUI removal"
+      ansible.builtin.debug:
+        msg: "After executing the script, ensure to reboot the system for verification. (Manual Reboot)\nMake regular backups of any files you modify."
+      when: gdm_installed.rc == 0
+      tags: [notice]
