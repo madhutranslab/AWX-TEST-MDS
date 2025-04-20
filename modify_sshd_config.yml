@@ -1,35 +1,83 @@
 ---
-- name: Backup and modify sshd_config with timestamp, and manual reboot
-  hosts: all
+- hosts: all
   become: yes
-  tasks:
+  vars:
+    gdm_profile_name: gdm
+    banner_message: |
+      Authorized users only. All activity may be monitored and reported.
+    dconf_profile_dir: "/etc/dconf/profile"
+    dconf_db_dir: "/etc/dconf/db/{{ gdm_profile_name }}.d"
+    keyfile: "{{ dconf_db_dir }}/01-banner-message"
 
-    - name: Get current timestamp
-      command: date "+%Y-%m-%d_%H-%M-%S"
-      register: current_timestamp
+  tasks:
+    - name: Check if GDM is installed
+      shell: rpm -q gdm
+      register: gdm_installed
+      ignore_errors: true
       changed_when: false
 
-    - name: Create a backup of sshd_config with timestamp
+    - name: Backup GDM dconf files with timestamp
+      shell: |
+        timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
+        mkdir -p /root/backup-gdm
+        if [ -f "{{ dconf_profile_dir }}/{{ gdm_profile_name }}" ]; then
+          cp "{{ dconf_profile_dir }}/{{ gdm_profile_name }}" "/root/backup-gdm/{{ gdm_profile_name }}.profile_${timestamp}.bak"
+        fi
+        if [ -d "{{ dconf_db_dir }}" ]; then
+          cp -r "{{ dconf_db_dir }}" "/root/backup-gdm/{{ gdm_profile_name }}.d_${timestamp}.bak"
+        fi
+      when: gdm_installed.rc == 0
+      args:
+        warn: false
+
+    - name: Ensure dconf profile exists
       copy:
-        src: /etc/ssh/sshd_config
-        dest: "/etc/ssh/sshd_config.bak_{{ current_timestamp.stdout }}"
-        backup: no
-      when: ansible_facts['os_family'] == 'RedHat'  # Modify as needed based on your OS family
-      register: backup_result
+        dest: "{{ dconf_profile_dir }}/{{ gdm_profile_name }}"
+        content: |
+          user-db:user
+          system-db:{{ gdm_profile_name }}
+          file-db:/usr/share/{{ gdm_profile_name }}/greeter-dconf-defaults
+      when: gdm_installed.rc == 0
 
-    - name: Check if backup was created
+    - name: Ensure dconf database directory exists
+      file:
+        path: "{{ dconf_db_dir }}"
+        state: directory
+      when: gdm_installed.rc == 0
+
+    - name: Configure banner-message-enable
+      blockinfile:
+        path: "{{ keyfile }}"
+        create: yes
+        block: |
+          [org/gnome/login-screen]
+          banner-message-enable=true
+        marker: ""
+      when: gdm_installed.rc == 0 and banner_message | length > 0
+
+    - name: Configure banner-message-text
+      blockinfile:
+        path: "{{ keyfile }}"
+        insertafter: '^banner-message-enable=true'
+        block: "banner-message-text='{{ banner_message }}'"
+        marker: ""
+      when: gdm_installed.rc == 0 and banner_message | length > 0
+
+    - name: Remove GDM banner settings if no message
+      file:
+        path: "{{ keyfile }}"
+        state: absent
+      when: gdm_installed.rc == 0 and banner_message | length == 0
+
+    - name: Update dconf database
+      command: dconf update
+      when: gdm_installed.rc == 0
+
+    - name: Manual reboot reminder
       debug:
-        msg: "Backup created: /etc/ssh/sshd_config.bak_{{ current_timestamp.stdout }}"
-      when: backup_result.changed
+        msg: "After running this playbook, reboot the system to apply GDM banner changes and verify."
+      when: gdm_installed.rc == 0
 
-    - name: Modify sshd_config (for example: changing PermitRootLogin)
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^#?PermitRootLogin'
-        line: 'PermitRootLogin no'
-        backup: yes
-
-    - name: Inform user to manually reboot the system for verification
+    - name: Manual reboot reminder (General Note)
       debug:
-        msg: "Please manually reboot the system to verify the changes made to the sshd_config file."
-
+        msg: "Make regular backups of any files you modify. After executing the script, ensure to reboot the system for verification (Manual Reboot)."
