@@ -1,0 +1,35 @@
+---
+- name: Backup and modify sshd_config with timestamp, and manual reboot
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Get current timestamp
+      command: date "+%Y-%m-%d_%H-%M-%S"
+      register: current_timestamp
+      changed_when: false
+
+    - name: Create a backup of sshd_config with timestamp
+      copy:
+        src: /etc/ssh/sshd_config
+        dest: "/etc/ssh/sshd_config.bak_{{ current_timestamp.stdout }}"
+        backup: no
+      when: ansible_facts['os_family'] == 'RedHat'  # Modify as needed based on your OS family
+      register: backup_result
+
+    - name: Check if backup was created
+      debug:
+        msg: "Backup created: /etc/ssh/sshd_config.bak_{{ current_timestamp.stdout }}"
+      when: backup_result.changed
+
+    - name: Modify sshd_config (for example: changing PermitRootLogin)
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+        backup: yes
+
+    - name: Inform user to manually reboot the system for verification
+      debug:
+        msg: "Please manually reboot the system to verify the changes made to the sshd_config file."
+
