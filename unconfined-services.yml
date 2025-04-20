@@ -1,0 +1,27 @@
+- name: "Check for unconfined services"
+  shell: "/bin/ps -eZ | /bin/grep unconfined_service_t | awk '{print $NF}' | sort -u"
+  register: unconfined_services
+  changed_when: false
+
+- name: "Fail if unconfined services found"
+  fail:
+    msg: >
+      "Unconfined services found: {{ unconfined_services.stdout_lines }}.
+      These should be reviewed and confined via appropriate SELinux policy or context assignment."
+  when: unconfined_services.stdout_lines | length > 0
+
+- name: "Backup sshd_config with timestamp"
+  shell: cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak_$(date +%F_%H-%M-%S)
+  when: ansible_facts['os_family'] == "RedHat"
+
+- name: "Set appropriate SELinux context (example: falcon-sensor)"
+  command: semanage fcontext -a -t bin_t "/opt/CrowdStrike/falcon-sensor(/.*)?"
+  when: "'falcon-sensor' in unconfined_services.stdout"
+
+- name: "Apply SELinux contexts (restorecon)"
+  command: restorecon -Rv /opt/CrowdStrike
+  when: "'falcon-sensor' in unconfined_services.stdout"
+
+- name: "Notify user to reboot manually"
+  debug:
+    msg: "Please manually reboot the system for SELinux context changes to take full effect."
