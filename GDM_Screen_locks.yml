@@ -1,71 +1,71 @@
 ---
-- name: Ensure GDM screen locks cannot be overridden (CIS 1.8.5)
+- name: Disable screensaver and screen lock for GNOME
   hosts: all
-  become: yes
+  become: true
   vars:
     dconf_dir: /etc/dconf/db
     dconf_profile: local
     screensaver_file: 00-screensaver
-    idle_delay_key: /org/gnome/desktop/session/idle-delay
-    lock_delay_key: /org/gnome/desktop/screensaver/lock-delay
-    idle_delay_value: "uint32 300"
-    lock_delay_value: "uint32 0"
     timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
 
   tasks:
-    - name: Create dconf profile directory
+    - name: Ensure dconf directories exist
       file:
-        path: "{{ dconf_dir }}/{{ dconf_profile }}.d"
+        path: "{{ item }}"
         state: directory
         mode: '0755'
+      loop:
+        - "{{ dconf_dir }}/{{ dconf_profile }}.d"
+        - "{{ dconf_dir }}/{{ dconf_profile }}.d/locks"
+
+    - name: Stat the screensaver config file
+      stat:
+        path: "{{ dconf_dir }}/{{ dconf_profile }}.d/{{ screensaver_file }}"
+      register: screensaver_file_stat
 
     - name: Backup existing screensaver config if present
       copy:
         src: "{{ dconf_dir }}/{{ dconf_profile }}.d/{{ screensaver_file }}"
         dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/{{ screensaver_file }}.bak_{{ timestamp }}"
         remote_src: yes
-      when: ansible_facts['distribution'] is defined and
-            ansible_facts['distribution'] != '' and
-            lookup('ansible.builtin.file', dconf_dir + '/' + dconf_profile + '.d/' + screensaver_file, errors='ignore') is defined
+      when: screensaver_file_stat.stat.exists
 
-    - name: Set idle-delay and lock-delay in dconf
+    - name: Disable screensaver and screen lock settings
       copy:
         dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/{{ screensaver_file }}"
         content: |
           [org/gnome/desktop/session]
-          idle-delay={{ idle_delay_value }}
+          idle-delay=uint32 0
 
           [org/gnome/desktop/screensaver]
-          lock-delay={{ lock_delay_value }}
-        mode: '0644'
+          lock-enabled=false
+          idle-activation-enabled=false
 
-    - name: Create locks directory
-      file:
-        path: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks"
-        state: directory
-        mode: '0755'
+    - name: Stat the screensaver lock file
+      stat:
+        path: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks/{{ screensaver_file }}"
+      register: screensaver_lock_stat
 
     - name: Backup existing lock file if present
       copy:
         src: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks/{{ screensaver_file }}"
         dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks/{{ screensaver_file }}.bak_{{ timestamp }}"
         remote_src: yes
-      when: lookup('ansible.builtin.file', dconf_dir + '/' + dconf_profile + '.d/locks/' + screensaver_file, errors='ignore') is defined
+      when: screensaver_lock_stat.stat.exists
 
-    - name: Lock idle-delay and lock-delay keys
+    - name: Lock down the settings
       copy:
         dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks/{{ screensaver_file }}"
         content: |
-          {{ idle_delay_key }}
-          {{ lock_delay_key }}
-        mode: '0644'
+          /org/gnome/desktop/session/idle-delay
+          /org/gnome/desktop/screensaver/lock-enabled
+          /org/gnome/desktop/screensaver/idle-activation-enabled
 
-    - name: Run dconf update
+    - name: Update dconf database
       command: dconf update
 
-    - name: Reminder - Manual reboot required
+    - name: Reminder - Manual Reboot Required
       debug:
         msg: |
-          ⚠️  Manual Reboot Required!
-          Please reboot the system to ensure the changes take effect.
-          Users must also log out and log back in for the GDM settings to apply.
+          Screensaver and lock settings have been hardened.
+          Please reboot the system manually to apply changes.
