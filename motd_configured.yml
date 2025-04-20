@@ -2,6 +2,7 @@
 - name: Ensure /etc/motd is configured correctly
   hosts: all
   become: yes
+  gather_facts: yes  # Explicitly gather facts
   tasks:
     - name: Backup /etc/motd with timestamp
       command: "cp /etc/motd /etc/motd.bak_{{ ansible_date_time.iso8601_basic }}"
