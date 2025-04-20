@@ -1,0 +1,41 @@
+---
+- name: Ensure system-wide crypto policy disables CBC for SSH
+  hosts: all
+  become: yes
+  vars:
+    sshcbc_policy_module_path: /etc/crypto-policies/policies/modules/NO-SSHCBC.pmod
+    sshcbc_policy_content: |
+      # This is a subpolicy to disable all CBC mode ciphers
+      # for the SSH protocol (libssh and OpenSSH)
+      cipher@SSH = -*-CBC
+    crypto_policy: "DEFAULT:NO-SHA1:NO-SSHCBC"  # adjust as needed
+
+  tasks:
+    - name: Backup existing NO-SSHCBC policy module (if exists)
+      copy:
+        src: "{{ sshcbc_policy_module_path }}"
+        dest: "{{ sshcbc_policy_module_path }}.bak_{{ ansible_date_time.iso8601 }}"
+        remote_src: yes
+      ignore_errors: yes
+
+    - name: Ensure NO-SSHCBC.pmod file exists with correct contents
+      copy:
+        dest: "{{ sshcbc_policy_module_path }}"
+        content: "{{ sshcbc_policy_content }}"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reboot system to apply crypto policy
+
+    - name: Apply crypto policy including NO-SSHCBC and NO-SHA1
+      command: update-crypto-policies --set {{ crypto_policy }}
+      register: crypto_policy_set
+      changed_when: "'Setting system policy to' in crypto_policy_set.stdout"
+      notify: Reboot system to apply crypto policy
+
+  handlers:
+    - name: Reboot system to apply crypto policy
+      reboot:
+        msg: "Rebooting system to apply new crypto policies"
+        pre_reboot_delay: 5
+        reboot_timeout: 600
