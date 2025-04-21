@@ -1,5 +1,15 @@
+---
+- name: Disable automount via GDM dconf settings
+  hosts: all
+  become: yes
+  vars:
+    dconf_db_dir: "/etc/dconf/db/local.d"
+    dconf_settings_file: "/etc/dconf/db/local.d/00-media-automount"
+    dconf_profile_file: "/etc/dconf/profile/user"
+    dconf_profile_name: "local"
+
   tasks:
-    - name: Check if GDM package is installed
+    - name: Gather installed package facts
       package_facts:
 
     - name: Set GDM installed flag
@@ -8,50 +18,58 @@
 
     - name: Warn if GDM is not installed
       debug:
-        msg: "GDM is not installed. Skipping automount configuration."
+        msg: "⚠ GDM is not installed. Skipping GDM-specific automount configuration."
       when: not gdm_installed
 
-    - name: Continue only if GDM is installed
-      block:
-        - name: Ensure dconf database directory exists
-          file:
-            path: "{{ dconf_db_dir }}"
-            state: directory
-            owner: root
-            group: root
-            mode: '0755'
+    - name: Stop play if GDM is not installed
+      meta: end_play
+      when: not gdm_installed
 
-        - name: Backup existing dconf settings file if it exists
-          copy:
-            src: "{{ dconf_settings_file }}"
-            dest: "{{ backup_file }}"
-            remote_src: yes
-          when: ansible_facts['files'][dconf_settings_file] is defined
+    - name: Ensure dconf database directory exists
+      file:
+        path: "{{ dconf_db_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
 
-        - name: Create dconf settings file to disable automount
-          copy:
-            dest: "{{ dconf_settings_file }}"
-            content: |
-              [org/gnome/desktop/media-handling]
-              automount=false
-              automount-open=false
-            owner: root
-            group: root
-            mode: '0644'
+    - name: Backup existing dconf settings file with timestamp if it exists
+      shell: |
+        timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
+        cp {{ dconf_settings_file }} {{ dconf_settings_file }}.bak_$timestamp
+      args:
+        executable: /bin/bash
+      when: ansible_facts['files'][dconf_settings_file] is defined
+      register: backup_result
+      ignore_errors: yes
 
-        - name: Ensure dconf profile file exists and has correct line
-          lineinfile:
-            path: "{{ dconf_profile_file }}"
-            line: "system-db:{{ dconf_profile_name }}"
-            insertafter: "^user-db:user"
-            create: yes
-            state: present
+    - name: Show backup result (if any)
+      debug:
+        var: backup_result.stdout_lines
+      when: backup_result is defined and backup_result.stdout_lines is defined
 
-        - name: Update dconf database
-          command: dconf update
+    - name: Create dconf settings file to disable automount
+      copy:
+        dest: "{{ dconf_settings_file }}"
+        content: |
+          [org/gnome/desktop/media-handling]
+          automount=false
+          automount-open=false
+        owner: root
+        group: root
+        mode: '0644'
 
-      when: gdm_installed
+    - name: Ensure dconf profile file exists and has correct line
+      lineinfile:
+        path: "{{ dconf_profile_file }}"
+        line: "system-db:{{ dconf_profile_name }}"
+        insertafter: "^user-db:user"
+        create: yes
+        state: present
+
+    - name: Update dconf database
+      command: dconf update
 
     - name: Notify user to manually reboot for changes to take effect
       debug:
-        msg: "Task complete. Please manually reboot the system to apply changes."
+        msg: "✔ Task complete. Please manually reboot the system to apply changes."
