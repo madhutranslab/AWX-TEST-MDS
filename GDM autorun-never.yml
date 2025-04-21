@@ -1,0 +1,56 @@
+---
+- name: CIS 1.8.8 - Disable automounting and autorun on GDM
+  hosts: all
+  become: true
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+
+  tasks:
+    - name: Ensure /etc/dconf/profile directory exists
+      file:
+        path: /etc/dconf/profile
+        state: directory
+        mode: '0755'
+
+    - name: Backup existing /etc/dconf/profile/gdm if it exists
+      copy:
+        src: /etc/dconf/profile/gdm
+        dest: "/etc/dconf/profile/gdm.bak.{{ timestamp }}"
+        remote_src: yes
+      ignore_errors: yes
+
+    - name: Configure /etc/dconf/profile/gdm
+      copy:
+        dest: /etc/dconf/profile/gdm
+        content: |
+          user-db:user
+          system-db:local
+        mode: '0644'
+
+    - name: Ensure /etc/dconf/db/local.d directory exists
+      file:
+        path: /etc/dconf/db/local.d
+        state: directory
+        mode: '0755'
+
+    - name: Backup existing /etc/dconf/db/local.d/00-media-autorun if it exists
+      copy:
+        src: /etc/dconf/db/local.d/00-media-autorun
+        dest: "/etc/dconf/db/local.d/00-media-autorun.bak.{{ timestamp }}"
+        remote_src: yes
+      ignore_errors: yes
+
+    - name: Configure autorun to never in dconf
+      copy:
+        dest: /etc/dconf/db/local.d/00-media-autorun
+        content: |
+          [org/gnome/desktop/media-handling]
+          autorun-never=true
+        mode: '0644'
+
+    - name: Run dconf update
+      command: dconf update
+
+    - name: Reminder to manually reboot the system
+      debug:
+        msg: "CIS 1.8.8 configuration complete.Please reboot the system manually to apply changes."
