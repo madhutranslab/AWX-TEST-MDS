@@ -1,75 +1,67 @@
 ---
-- name: Ensure GDM screen locks cannot be overridden
-  hosts: all
-  become: true
+- name: Lock GDM screen settings and create backups
+  hosts: localhost
+  become: yes
   vars:
-    gdm_keyfile_path: "/etc/dconf/db/local.d"
-    gdm_lockfile_path: "/etc/dconf/db/local.d/locks"
-    idle_delay_value: "uint32 300"
-    lock_delay_value: "uint32 0"
-    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    timestamp: "{{ lookup('pipe', 'date +%F_%H-%M-%S') }}"
 
   tasks:
-    - name: Ensure GNOME Desktop Manager is installed
-      package:
-        name: gdm
-        state: present
 
-    - name: Create dconf profile directory
+    - name: Ensure dconf settings directory exists
       file:
-        path: "{{ gdm_keyfile_path }}"
+        path: "/etc/dconf/db/local.d"
         state: directory
         mode: '0755'
 
-    - name: Backup 00-screensaver file if exists
+    - name: Ensure dconf locks directory exists
+      file:
+        path: "/etc/dconf/db/local.d/locks"
+        state: directory
+        mode: '0755'
+
+    - name: Backup existing 00-screensaver config if it exists
       copy:
-        src: "{{ gdm_keyfile_path }}/00-screensaver"
-        dest: "{{ gdm_keyfile_path }}/00-screensaver.bak_{{ timestamp }}"
-        remote_src: true
-      when: ansible_facts['distribution'] != "Unknown" and
-            ansible_facts['os_family'] != "Unknown" and
-            ansible_facts['ansible_date_time'] is defined and
-            ansible_facts['ansible_date_time']['date'] is defined
+        src: /etc/dconf/db/local.d/00-screensaver
+        dest: "/etc/dconf/db/local.d/00-screensaver.bak_{{ timestamp }}"
+        remote_src: yes
+      when: ansible_facts['distribution'] != 'Unknown' and
+            ansible_facts['os_family'] != 'Windows' and
+            ansible_facts['distribution'] != 'MacOSX' and
+            ansible_facts['distribution'] != 'Darwin'
       ignore_errors: true
 
-    - name: Configure idle-delay setting
+    - name: Backup existing 00-screensaver lock if it exists
       copy:
-        dest: "{{ gdm_keyfile_path }}/00-screensaver"
+        src: /etc/dconf/db/local.d/locks/00-screensaver
+        dest: "/etc/dconf/db/local.d/locks/00-screensaver.bak_{{ timestamp }}"
+        remote_src: yes
+      ignore_errors: true
+
+    - name: Set idle-delay and lock-delay settings
+      copy:
+        dest: /etc/dconf/db/local.d/00-screensaver
         content: |
           [org/gnome/desktop/session]
-          idle-delay={{ idle_delay_value }}
+          idle-delay=uint32 300
 
-    - name: Configure lock-delay setting
-      blockinfile:
-        path: "{{ gdm_keyfile_path }}/00-screensaver"
-        block: |
           [org/gnome/desktop/screensaver]
-          lock-delay={{ lock_delay_value }}
+          lock-delay=uint32 5
+          lock-enabled=true
+        mode: '0644'
 
-    - name: Create dconf lock directory
-      file:
-        path: "{{ gdm_lockfile_path }}"
-        state: directory
-        mode: '0755'
-
-    - name: Backup lock file if exists
+    - name: Lock idle-delay and lock-delay keys
       copy:
-        src: "{{ gdm_lockfile_path }}/00-screensaver-lock"
-        dest: "{{ gdm_lockfile_path }}/00-screensaver-lock.bak_{{ timestamp }}"
-        remote_src: true
-      ignore_errors: true
-
-    - name: Lock idle-delay and lock-delay settings
-      copy:
-        dest: "{{ gdm_lockfile_path }}/00-screensaver-lock"
+        dest: /etc/dconf/db/local.d/locks/00-screensaver
         content: |
           /org/gnome/desktop/session/idle-delay
           /org/gnome/desktop/screensaver/lock-delay
+        mode: '0644'
 
     - name: Update dconf database
       command: dconf update
 
-    - name: Manual Reboot Reminder
+    - name: Reminder to manually reboot system
       debug:
-        msg: "✅ Please manually reboot the system to apply GDM screen lock settings."
-
+        msg: |
+          Reboot is required for settings to take effect.
+          Please reboot the system manually. 
