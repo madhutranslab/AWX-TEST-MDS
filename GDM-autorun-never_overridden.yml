@@ -1,0 +1,59 @@
+---
+- name: Ensure GDM autorun-never cannot be overridden
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Set timestamp variable
+      set_fact:
+        timestamp: "{{ lookup('pipe', 'date +\"%Y-%m-%d_%H-%M-%S\"') }}"
+
+    - name: Check if GNOME Desktop Manager (GDM) is installed
+      command: "dpkg-query -W gdm gdm3"
+      register: gdm_check
+      ignore_errors: true
+
+    - name: Backup dconf db before modification
+      command: "cp -r /etc/dconf/db/{{ item }} /backup/dconf/db/{{ item }}_backup_{{ timestamp }}"
+      with_fileglob:
+        - "/etc/dconf/db/*"
+      when: gdm_check.rc == 0
+      notify: 
+        - Backup dconf files
+
+    - name: Ensure autorun-never is locked in dconf
+      block:
+        - name: Determine the dconf directory for autorun-never
+          command: >
+            grep -Psril '^autorun-never' /etc/dconf/db/*/ | awk -F'/' '{split($(NF-1),a,".");print a[1]}'
+          register: dconf_dir
+          changed_when: false
+          failed_when: false
+
+        - name: Lock autorun-never setting
+          file:
+            path: "/etc/dconf/db/{{ dconf_dir.stdout }}/locks/00-media-autorun"
+            state: touch
+            mode: '0644'
+          when: dconf_dir.stdout != ''
+
+        - name: Add lock entry for autorun-never
+          lineinfile:
+            path: "/etc/dconf/db/{{ dconf_dir.stdout }}/locks/00-media-autorun"
+            line: '/org/gnome/desktop/media-handling/autorun-never'
+            create: yes
+          when: dconf_dir.stdout != ''
+
+        - name: Update dconf database
+          command: dconf update
+          when: dconf_dir.stdout != ''
+
+    - name: Notify user to manually reboot system
+      debug:
+        msg: "CIS 1.8.9 configuration complete. Please reboot the system manually to apply changes."
+
+  handlers:
+    - name: Backup dconf files
+      debug:
+        msg: "Backup of /etc/dconf/db created with timestamp {{ timestamp }}"
+
