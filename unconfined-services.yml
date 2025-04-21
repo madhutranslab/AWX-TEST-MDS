@@ -13,6 +13,16 @@
         dest: "/backup/selinux_config_{{ timestamp }}.bak"
         remote_src: yes
 
+    - name: Get the list of unconfined services
+      shell: |
+        /bin/ps -eZ | /bin/grep unconfined_service_t | /bin/awk -F: '{ print $NF } END {if (NR == 0) print ""none""}'
+      register: unconfined_services
+      changed_when: false
+
+    - name: Print unconfined services
+      debug:
+        msg: "{{ unconfined_services.stdout }}"
+
     - name: Backup relevant service files before making changes
       copy:
         src: "/path/to/falcon-sensor"
@@ -33,15 +43,6 @@
         dest: "/backup/falcon-agent_{{ timestamp }}.bak"
         remote_src: yes
       when: "'agent' in unconfined_services.stdout"
-
-    - name: Get the list of unconfined services
-      shell: |
-        /bin/ps -eZ | /bin/grep unconfined_service_t | /bin/awk -F: '{ print $NF } END {if (NR == 0) print ""none""}'
-      register: unconfined_services
-
-    - name: Print unconfined services
-      debug:
-        msg: "{{ unconfined_services.stdout }}"
 
     - name: Investigate falcon-sensor service
       when: "'falcon-sensor' in unconfined_services.stdout"
