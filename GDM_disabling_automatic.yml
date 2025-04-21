@@ -1,51 +1,63 @@
 ---
-- name: Backup configuration files with timestamp and other hardening tasks
+- name: System Hardening Playbook
   hosts: all
   become: true
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+
   tasks:
 
-    - name: Get the current timestamp
-      set_fact:
-        timestamp: "{{ ansible_date_time.iso8601_basic | regex_replace('T', '_') | regex_replace(':', '-') }}"
-
-    - name: Backup the sshd_config file with timestamp
-      command: cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak_{{ timestamp }}
-      register: backup_ssh_config
-      changed_when: true
-
-    - name: Ensure sshd_config file exists
+    - name: Ensure sshd_config exists before backing up
       stat:
         path: /etc/ssh/sshd_config
       register: sshd_config_stat
 
-    - name: Fail if sshd_config file doesn't exist
-      fail:
-        msg: "sshd_config file is missing!"
-      when: not sshd_config_stat.stat.exists
+    - name: Backup sshd_config with timestamp
+      copy:
+        src: /etc/ssh/sshd_config
+        dest: "/etc/ssh/sshd_config.bak_{{ timestamp }}"
+        remote_src: yes
+      when: sshd_config_stat.stat.exists
 
-    - name: Backup another critical file (example)
-      command: cp /etc/sysctl.conf /etc/sysctl.conf.bak_{{ timestamp }}
-      register: backup_sysctl
-      changed_when: true
-
-    - name: Check if GDM (GNOME Display Manager) is installed
-      command: dpkg-query -W gdm
+    - name: Check if GDM is installed (RPM-based or Debian-based)
+      shell: |
+        if command -v rpm &> /dev/null; then
+          rpm -q gdm
+        elif command -v dpkg-query &> /dev/null; then
+          dpkg-query -W gdm
+        else
+          exit 1
+        fi
       register: gdm_check
-      ignore_errors: true
+      failed_when: false
+      changed_when: false
+
+    - name: Set fact if GDM is installed
+      set_fact:
+        gdm_installed: "{{ 'is not installed' not in gdm_check.stdout and gdm_check.rc == 0 }}"
+
+    - name: Debug GDM installed status
+      debug:
+        msg: "GDM installed: {{ gdm_installed }}"
 
     - name: Fail if GDM is not installed
       fail:
         msg: "GDM is not installed. This task is not applicable."
-      when: gdm_check.rc != 0
+      when: not gdm_installed
 
     - name: Lock GNOME automount settings if GDM is installed
-      command: |
-        mkdir -p /etc/dconf/db/local.d/locks
-        echo "/org/gnome/desktop/media-handling/automount" > /etc/dconf/db/local.d/locks/00-media-automount
-        echo "/org/gnome/desktop/media-handling/automount-open" >> /etc/dconf/db/local.d/locks/00-media-automount
-        dconf update
-      when: gdm_check.rc == 0
+      block:
+        - name: Create lock file for automount
+          copy:
+            content: |
+              /org/gnome/desktop/media-handling/automount
+              /org/gnome/desktop/media-handling/automount-open
+            dest: /etc/dconf/db/local.d/locks/00-media-automount
 
-    - name: Reboot the system manually for verification
+        - name: Update dconf database
+          command: dconf update
+      when: gdm_installed
+
+    - name: Notify user to manually reboot
       debug:
-        msg: "Please manually reboot the system to verify the changes."
+        msg: "Script complete. Please **manually reboot** the system to apply changes."
