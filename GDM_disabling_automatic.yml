@@ -1,52 +1,36 @@
 ---
-- name: System Hardening Playbook
+- name: Secure GDM Automount and SSH Config
   hosts: all
   become: true
   vars:
     timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    sshd_config_path: /etc/ssh/sshd_config
+    sshd_backup_path: "/etc/ssh/sshd_config.bak_{{ timestamp }}"
 
   tasks:
 
-    - name: Ensure sshd_config exists before backing up
-      stat:
-        path: /etc/ssh/sshd_config
-      register: sshd_config_stat
-
-    - name: Backup sshd_config with timestamp
-      copy:
-        src: /etc/ssh/sshd_config
-        dest: "/etc/ssh/sshd_config.bak_{{ timestamp }}"
-        remote_src: yes
-      when: sshd_config_stat.stat.exists
-
-    - name: Check if GDM is installed (RPM-based or Debian-based)
-      shell: |
-        if command -v rpm &> /dev/null; then
-          rpm -q gdm
-        elif command -v dpkg-query &> /dev/null; then
-          dpkg-query -W gdm
-        else
-          exit 1
-        fi
+    - name: Check if GDM is installed
+      command: which gdm
       register: gdm_check
-      failed_when: false
-      changed_when: false
+      ignore_errors: true
 
-    - name: Set fact if GDM is installed
+    - name: Set gdm_installed variable
       set_fact:
-        gdm_installed: "{{ 'is not installed' not in gdm_check.stdout and gdm_check.rc == 0 }}"
+        gdm_installed: "{{ gdm_check.rc == 0 }}"
 
-    - name: Debug GDM installed status
+    - name: Skip GDM tasks if not installed
       debug:
-        msg: "GDM installed: {{ gdm_installed }}"
-
-    - name: Fail if GDM is not installed
-      fail:
-        msg: "GDM is not installed. This task is not applicable."
+        msg: "GDM is not installed. Skipping GNOME automount lock tasks."
       when: not gdm_installed
 
     - name: Lock GNOME automount settings if GDM is installed
       block:
+        - name: Ensure dconf lock directory exists
+          file:
+            path: /etc/dconf/db/local.d/locks
+            state: directory
+            mode: '0755'
+
         - name: Create lock file for automount
           copy:
             content: |
@@ -58,6 +42,12 @@
           command: dconf update
       when: gdm_installed
 
-    - name: Notify user to manually reboot
+    - name: Backup sshd_config with timestamp
+      copy:
+        src: "{{ sshd_config_path }}"
+        dest: "{{ sshd_backup_path }}"
+        remote_src: yes
+
+    - name: Display reboot reminder
       debug:
-        msg: "Script complete. Please **manually reboot** the system to apply changes."
+        msg: "Please reboot the system manually to apply all changes."
