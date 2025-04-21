@@ -1,27 +1,89 @@
-- name: "Check for unconfined services"
-  shell: "/bin/ps -eZ | /bin/grep unconfined_service_t | awk '{print $NF}' | sort -u"
-  register: unconfined_services
-  changed_when: false
+---
+- name: Investigate and assign security contexts to unconfined services
+  hosts: all
+  become: true
+  tasks:
+    - name: Set timestamp for backups
+      set_fact:
+        timestamp: "{{ lookup('pipe', 'date +\"%Y-%m-%d_%H-%M-%S\"') }}"
 
-- name: "Fail if unconfined services found"
-  fail:
-    msg: >
-      "Unconfined services found: {{ unconfined_services.stdout_lines }}.
-      These should be reviewed and confined via appropriate SELinux policy or context assignment."
-  when: unconfined_services.stdout_lines | length > 0
+    - name: Backup SELinux configuration before making changes
+      copy:
+        src: /etc/selinux/config
+        dest: "/backup/selinux_config_{{ timestamp }}.bak"
+        remote_src: yes
 
-- name: "Backup sshd_config with timestamp"
-  shell: cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak_$(date +%F_%H-%M-%S)
-  when: ansible_facts['os_family'] == "RedHat"
+    - name: Backup relevant service files before making changes
+      copy:
+        src: "/path/to/falcon-sensor"
+        dest: "/backup/falcon-sensor_{{ timestamp }}.bak"
+        remote_src: yes
+      when: "'falcon-sensor' in unconfined_services.stdout"
 
-- name: "Set appropriate SELinux context (example: falcon-sensor)"
-  command: semanage fcontext -a -t bin_t "/opt/CrowdStrike/falcon-sensor(/.*)?"
-  when: "'falcon-sensor' in unconfined_services.stdout"
+    - name: Backup relevant updater service files before making changes
+      copy:
+        src: "/path/to/falcon-sensor-updater"
+        dest: "/backup/falcon-sensor-updater_{{ timestamp }}.bak"
+        remote_src: yes
+      when: "'updater' in unconfined_services.stdout"
 
-- name: "Apply SELinux contexts (restorecon)"
-  command: restorecon -Rv /opt/CrowdStrike
-  when: "'falcon-sensor' in unconfined_services.stdout"
+    - name: Backup relevant agent service files before making changes
+      copy:
+        src: "/path/to/falcon-agent"
+        dest: "/backup/falcon-agent_{{ timestamp }}.bak"
+        remote_src: yes
+      when: "'agent' in unconfined_services.stdout"
 
-- name: "Notify user to reboot manually"
-  debug:
-    msg: "Please manually reboot the system for SELinux context changes to take full effect."
+    - name: Get the list of unconfined services
+      shell: |
+        /bin/ps -eZ | /bin/grep unconfined_service_t | /bin/awk -F: '{ print $NF } END {if (NR == 0) print ""none""}'
+      register: unconfined_services
+
+    - name: Print unconfined services
+      debug:
+        msg: "{{ unconfined_services.stdout }}"
+
+    - name: Investigate falcon-sensor service
+      when: "'falcon-sensor' in unconfined_services.stdout"
+      block:
+        - name: Check the SELinux status for falcon-sensor
+          command: semanage fcontext -l | grep falcon-sensor
+          register: falcon_sensor_secontext
+          failed_when: false
+
+        - name: Assign SELinux context for falcon-sensor if necessary
+          command: semanage fcontext -a -t falcon_sensor_exec_t /path/to/falcon-sensor
+          when: falcon_sensor_secontext.stdout == ""
+          
+    - name: Investigate falcon-sensor updater service
+      when: "'updater' in unconfined_services.stdout"
+      block:
+        - name: Check the SELinux status for falcon-sensor updater
+          command: semanage fcontext -l | grep updater
+          register: falcon_sensor_updater_secontext
+          failed_when: false
+
+        - name: Assign SELinux context for falcon-sensor updater if necessary
+          command: semanage fcontext -a -t falcon_sensor_exec_t /path/to/falcon-sensor-updater
+          when: falcon_sensor_updater_secontext.stdout == ""
+
+    - name: Investigate falcon agent service
+      when: "'agent' in unconfined_services.stdout"
+      block:
+        - name: Check the SELinux status for falcon-agent
+          command: semanage fcontext -l | grep agent
+          register: falcon_agent_secontext
+          failed_when: false
+
+        - name: Assign SELinux context for falcon-agent if necessary
+          command: semanage fcontext -a -t falcon_sensor_exec_t /path/to/falcon-agent
+          when: falcon_agent_secontext.stdout == ""
+
+    - name: Ensure SELinux status is set to enforcing mode
+      shell: |
+        setenforce 1
+        sed -i 's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
+
+    - name: Notify user to manually reboot the system
+      debug:
+        msg: "Please manually reboot the system for the changes to take effect."
