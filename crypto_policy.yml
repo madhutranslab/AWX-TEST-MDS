@@ -12,6 +12,7 @@
     crypto_policy: "DEFAULT:NO-SHA1"
 
   tasks:
+
     - name: Backup existing SHA1 policy module (if exists)
       copy:
         src: "{{ sha1_policy_module_path }}"
@@ -29,17 +30,15 @@
         owner: root
         group: root
         mode: '0644'
-      notify: Reboot system to apply crypto policy
 
     - name: Apply updated crypto policy
       command: update-crypto-policies --set {{ crypto_policy }}
       register: crypto_policy_set
       changed_when: "'Setting system policy to' in crypto_policy_set.stdout"
-      notify: Reboot system to apply crypto policy
 
-  handlers:
-    - name: Reboot system to apply crypto policy
-      reboot:
-        msg: "Rebooting to apply crypto policy changes"
-        pre_reboot_delay: 5
-        reboot_timeout: 600
+    - name: Notify user to manually reboot the system
+      debug:
+        msg: |
+          Crypto policy has been updated to "{{ crypto_policy }}".
+          Manual reboot is required to apply changes. 
+          Please reboot the system at your convenience.
