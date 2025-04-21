@@ -1,60 +1,49 @@
 ---
-- name: Ensure SELinux is in enforcing mode (with timestamped backup)
+- name: Ensure SELinux is in Enforcing mode
   hosts: all
   become: yes
-  vars:
-    selinux_config_path: /etc/selinux/config
-    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
-    selinux_backup_file: "{{ selinux_config_path }}.bak_{{ timestamp }}"
-
   tasks:
 
-    - name: Ensure SELinux tools are installed (RHEL 8+)
-      dnf:
-        name: libselinux-utils
-        state: present
-      when:
-        - ansible_facts['os_family'] == "RedHat"
-        - ansible_facts['distribution_major_version'] | int >= 8
+    - name: Set timestamp variable
+      set_fact:
+        timestamp: "{{ lookup('pipe', 'date +\"%Y-%m-%d_%H-%M-%S\"') }}"
 
-    - name: Ensure SELinux tools are installed (RHEL 7 or older)
-      yum:
-        name: libselinux-utils
-        state: present
-      when:
-        - ansible_facts['os_family'] == "RedHat"
-        - ansible_facts['distribution_major_version'] | int < 8
+    - name: Backup /etc/selinux/config file
+      command: "cp /etc/selinux/config /backup/selinux_config_backup_{{ timestamp }}"
+      when: ansible_facts.os_family == 'RedHat'
+      notify:
+        - Backup SELinux configuration
 
-    - name: Create timestamped backup of SELinux config
-      copy:
-        src: "{{ selinux_config_path }}"
-        dest: "{{ selinux_backup_file }}"
-        remote_src: yes
-      when: selinux_config_path is file
-
-    - name: Set SELinux to enforcing in config file
+    - name: Ensure SELinux is enforcing by setting in /etc/selinux/config
       lineinfile:
-        path: "{{ selinux_config_path }}"
+        path: /etc/selinux/config
         regexp: '^SELINUX='
         line: 'SELINUX=enforcing'
-        state: present
-        backrefs: yes
+        backup: yes
+      when: ansible_facts.os_family == 'RedHat'
+      notify:
+        - SELinux configuration updated
 
-    - name: Check current SELinux status
+    - name: Ensure SELinux is enforcing by running setenforce
+      command: setenforce 1
+      when: ansible_facts.os_family == 'RedHat'
+
+    - name: Verify SELinux status
       command: getenforce
       register: selinux_status
-      failed_when: false
+      failed_when: selinux_status.stdout != "Enforcing"
       changed_when: false
+      when: ansible_facts.os_family == 'RedHat'
 
-    - name: Set SELinux to enforcing immediately if in Permissive mode
-      command: setenforce 1
-      when: selinux_status.stdout == "Permissive"
-
-    - name: Display current SELinux status
+    - name: Notify user to manually reboot the system
       debug:
-        msg: "Current SELinux status: {{ selinux_status.stdout }}"
+        msg: "SELinux has been set to Enforcing mode. Please reboot the system manually for verification."
 
-    - name: Reminder to manually reboot if SELinux was disabled
+  handlers:
+    - name: Backup SELinux configuration
       debug:
-        msg: "Manual reboot required to apply SELinux changes. SELinux was: {{ selinux_status.stdout }}"
-      when: selinux_status.stdout == "Disabled"
+        msg: "Backup of /etc/selinux/config has been created with timestamp {{ timestamp }}"
+
+    - name: SELinux configuration updated
+      debug:
+        msg: "The SELINUX parameter in /etc/selinux/config has been updated to 'enforcing'."
