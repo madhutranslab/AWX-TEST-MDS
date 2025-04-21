@@ -1,0 +1,61 @@
+---
+- name: Disable GDM automatic mounting of removable media with backup
+  hosts: all
+  become: yes
+  vars:
+    dconf_profile_name: "local"
+    dconf_db_dir: "/etc/dconf/db/local.d"
+    dconf_profile_file: "/etc/dconf/profile/user"
+    dconf_settings_file: "/etc/dconf/db/local.d/00-media-automount"
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    backup_file: "{{ dconf_settings_file }}.bak_{{ timestamp }}"
+
+  tasks:
+    - name: Check if GDM package is installed
+      package_facts:
+
+    - name: Fail if GDM is not installed
+      fail:
+        msg: "GDM is not installed. This task is not applicable."
+      when: "'gdm' not in ansible_facts.packages"
+
+    - name: Ensure dconf database directory exists
+      file:
+        path: "{{ dconf_db_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Backup existing dconf settings file if it exists
+      copy:
+        src: "{{ dconf_settings_file }}"
+        dest: "{{ backup_file }}"
+        remote_src: yes
+      when: ansible_facts['files'][dconf_settings_file] is defined
+
+    - name: Create dconf settings file to disable automount
+      copy:
+        dest: "{{ dconf_settings_file }}"
+        content: |
+          [org/gnome/desktop/media-handling]
+          automount=false
+          automount-open=false
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Ensure dconf profile file exists and has correct line
+      lineinfile:
+        path: "{{ dconf_profile_file }}"
+        line: "system-db:{{ dconf_profile_name }}"
+        insertafter: "^user-db:user"
+        create: yes
+        state: present
+
+    - name: Update dconf database
+      command: dconf update
+
+    - name: Notify user to manually reboot for changes to take effect
+      debug:
+        msg: "✔ GDM automount has been disabled. Please manually reboot the system to apply changes."
