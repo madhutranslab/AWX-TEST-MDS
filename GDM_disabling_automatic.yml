@@ -1,0 +1,51 @@
+---
+- name: Backup configuration files with timestamp and other hardening tasks
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Get the current timestamp
+      set_fact:
+        timestamp: "{{ ansible_date_time.iso8601_basic | regex_replace('T', '_') | regex_replace(':', '-') }}"
+
+    - name: Backup the sshd_config file with timestamp
+      command: cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak_{{ timestamp }}
+      register: backup_ssh_config
+      changed_when: true
+
+    - name: Ensure sshd_config file exists
+      stat:
+        path: /etc/ssh/sshd_config
+      register: sshd_config_stat
+
+    - name: Fail if sshd_config file doesn't exist
+      fail:
+        msg: "sshd_config file is missing!"
+      when: not sshd_config_stat.stat.exists
+
+    - name: Backup another critical file (example)
+      command: cp /etc/sysctl.conf /etc/sysctl.conf.bak_{{ timestamp }}
+      register: backup_sysctl
+      changed_when: true
+
+    - name: Check if GDM (GNOME Display Manager) is installed
+      command: dpkg-query -W gdm
+      register: gdm_check
+      ignore_errors: true
+
+    - name: Fail if GDM is not installed
+      fail:
+        msg: "GDM is not installed. This task is not applicable."
+      when: gdm_check.rc != 0
+
+    - name: Lock GNOME automount settings if GDM is installed
+      command: |
+        mkdir -p /etc/dconf/db/local.d/locks
+        echo "/org/gnome/desktop/media-handling/automount" > /etc/dconf/db/local.d/locks/00-media-automount
+        echo "/org/gnome/desktop/media-handling/automount-open" >> /etc/dconf/db/local.d/locks/00-media-automount
+        dconf update
+      when: gdm_check.rc == 0
+
+    - name: Reboot the system manually for verification
+      debug:
+        msg: "Please manually reboot the system to verify the changes."
