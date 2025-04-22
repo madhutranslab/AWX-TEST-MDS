@@ -1,6 +1,6 @@
 ---
 - name: Ensure PAM nullok changes with backup 
-  hosts: prod_servers
+  hosts: all
   become: yes
   tasks:
     - name: Backup PAM system-auth and password-auth files
