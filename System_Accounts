@@ -1,0 +1,51 @@
+---
+- name: Ensure system accounts are secured
+  hosts: all
+  become: yes
+  tasks:
+    - name: Create a backup of /etc/passwd before making changes
+      copy:
+        src: /etc/passwd
+        dest: "/tmp/passwd.bak_{{ ansible_date_time.iso8601_basic }}"
+        backup: yes
+      tags: backup
+
+    - name: Set non-interactive system accounts to nologin
+      shell: |
+        awk -F: '($1!~/^(root|halt|sync|shutdown|nfsnobody)$/ && ($3<$(awk '/^s*UID_MIN/{print $2}' /etc/login.defs) || $3 == 65534)) { print $1 }' /etc/passwd | while read user; do
+          usermod -s $(command -v nologin) $user
+        done
+      tags: secure_accounts
+
+    - name: Lock non-root accounts
+      shell: |
+        awk -F: '($1!~/^(root)$/ && $3<$(awk "/^s*UID_MIN/{print $2}" /etc/login.defs)) {print $1}' /etc/passwd | xargs -I '{}' passwd -S '{}' | awk '$2!~/L|LK/ {print $1}' | while read user; do
+          usermod -L $user
+        done
+      tags: lock_accounts
+
+    - name: Create backup of /etc/passwd after changes
+      copy:
+        src: /etc/passwd
+        dest: "/tmp/passwd.bak_post_{{ ansible_date_time.iso8601_basic }}"
+        backup: yes
+      tags: backup
+
+    - name: Ensure /etc/ssh/sshd_config is backed up before modification
+      copy:
+        src: /etc/ssh/sshd_config
+        dest: "/tmp/sshd_config.bak_{{ ansible_date_time.iso8601_basic }}"
+        backup: yes
+      tags: backup
+
+    - name: Set non-interactive accounts to nologin and lock them
+      shell: |
+        awk -F: '/nologin/ {print $1}' /etc/passwd | while read user; do
+          usermod -L $user
+        done
+      tags: lock_nologin_accounts
+
+    - name: Reboot the system (manual reboot after verification)
+      debug:
+        msg: "Please reboot the system manually to ensure the changes are applied."
+      tags: reboot
