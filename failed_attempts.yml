@@ -1,5 +1,5 @@
 ---
-- name: Ensure password failed attempts lockout is configured (deny = 3)
+- name: Ensure password failed attempts lockout is configured
   hosts: all
   become: yes
   vars:
@@ -15,11 +15,11 @@
         remote_src: yes
         mode: '0644'
 
-    - name: Ensure 'deny = 3' is present in faillock.conf
+    - name: Ensure 'deny = 5' is present in faillock.conf
       lineinfile:
         path: "{{ faillock_conf }}"
         regexp: '^\s*deny\s*='
-        line: 'deny = 3'
+        line: 'deny = 5'
         state: present
         create: yes
         backup: no
@@ -29,4 +29,4 @@
   handlers:
     - name: Show result
       debug:
-        msg: "'deny = 3' ensured in {{ faillock_conf }}"
+        msg: "'deny = 5' ensured in {{ faillock_conf }}"
