@@ -1,60 +1,47 @@
----
-- name: Ensure PAM nullok changes with backup 
+- name: Remove 'nullok' from PAM configs and backup with timestamp
   hosts: all
   become: yes
+  vars:
+    pam_files:
+      - system-auth
+      - password-auth
+    backup_dir: /etc/pam.d/backup
   tasks:
-    - name: Backup PAM system-auth and password-auth files
-      ansible.builtin.copy:
+
+    - name: Ensure backup directory exists
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Backup original PAM files with timestamp
+      copy:
         src: "/etc/pam.d/{{ item }}"
-        dest: "/etc/pam.d/backup/{{ item }}.bak_{{ ansible_date_time.iso8601 }}"
+        dest: "{{ backup_dir }}/{{ item }}.bak_{{ ansible_date_time.date }}_{{ ansible_date_time.time | regex_replace(':', '-') }}"
+        remote_src: yes
+      loop: "{{ pam_files }}"
+
+    - name: Remove 'nullok' from pam_unix.so lines
+      replace:
+        path: "/etc/pam.d/{{ item }}"
+        regexp: '(^\s*(auth|password)\s+(requisite|required|sufficient)\s+pam_unix\.so\s+.*)\bnullok\b'
+        replace: '\1'
         backup: no
-      loop:
-        - system-auth
-        - password-auth
-      register: backup_files
+      loop: "{{ pam_files }}"
 
-    - name: Display backup location for verification
-      debug:
-        msg: "Backup files: {{ backup_files.results | map(attribute='dest') | join(', ') }}"
+    - name: Check if 'without-nullok' feature is enabled
+      command: "authselect current"
+      register: authselect_status
 
-    - name: Ensure pam_unix.so does not contain nullok in system-auth
-      ansible.builtin.lineinfile:
-        path: "/etc/pam.d/system-auth"
-        regexp: 'pam_unix\.so.*nullok'
-        line: "auth sufficient pam_unix.so {if not \"without-nullok\":nullok}"
-        state: present
-
-    - name: Ensure pam_unix.so does not contain nullok in password-auth
-      ansible.builtin.lineinfile:
-        path: "/etc/pam.d/password-auth"
-        regexp: 'pam_unix\.so.*nullok'
-        line: "auth sufficient pam_unix.so {if not \"without-nullok\":nullok}"
-        state: present
-
-    - name: Enable the 'without-nullok' feature in authselect
-      ansible.builtin.command:
-        cmd: "authselect enable-feature without-nullok"
-        creates: "/etc/authselect/$l_profile_name/without-nullok"
-      when: ansible_facts['distribution'] == "CentOS"
+    - name: Enable 'without-nullok' feature if not already enabled
+      command: "authselect enable-feature without-nullok"
+      when: "'without-nullok' not in authselect_status.stdout"
 
     - name: Apply authselect changes
-      ansible.builtin.command:
-        cmd: "authselect apply-changes"
+      command: "authselect apply-changes"
 
-    - name: Reboot the system for changes to take effect
-      ansible.builtin.reboot:
-        reboot_timeout: 600
-        test_command: uptime
-        delay: 10
-        msg: "Rebooting to apply changes to PAM configuration"
-    
-    - name: Verify PAM changes are applied and nullok is removed
-      ansible.builtin.shell:
-        cmd: "grep 'pam_unix.so' /etc/pam.d/{password-auth,system-auth}"
-      register: pam_check
-      failed_when: pam_check.stdout.find('nullok') != -1
-      changed_when: False
-
-    - name: Show verification results
-      debug:
-        msg: "PAM check results: {{ pam_check.stdout }}"
+    - name: Reboot if needed (manual review may trigger it)
+      reboot:
+        msg: "Reboot after removing nullok from pam_unix.so"
+        pre_reboot_delay: 5
+      when: false  # change to `true` if you want to trigger automatically
