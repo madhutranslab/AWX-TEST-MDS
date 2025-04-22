@@ -31,11 +31,11 @@
         backup: yes
       tags: backup
 
-    - name: Ensure /etc/ssh/sshd_config is backed up before modification
-      copy:
+    - name: Ensure /etc/ssh/sshd_config is backed up before modification (remote backup)
+      fetch:
         src: /etc/ssh/sshd_config
         dest: "/tmp/sshd_config.bak_{{ ansible_date_time.iso8601_basic }}"
-        backup: yes
+        flat: yes
       tags: backup
 
     - name: Set non-interactive accounts to nologin and lock them
