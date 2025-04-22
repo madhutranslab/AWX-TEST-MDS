@@ -1,0 +1,60 @@
+---
+- name: Ensure PAM nullok changes with backup 
+  hosts: prod_servers
+  become: yes
+  tasks:
+    - name: Backup PAM system-auth and password-auth files
+      ansible.builtin.copy:
+        src: "/etc/pam.d/{{ item }}"
+        dest: "/etc/pam.d/backup/{{ item }}.bak_{{ ansible_date_time.iso8601 }}"
+        backup: no
+      loop:
+        - system-auth
+        - password-auth
+      register: backup_files
+
+    - name: Display backup location for verification
+      debug:
+        msg: "Backup files: {{ backup_files.results | map(attribute='dest') | join(', ') }}"
+
+    - name: Ensure pam_unix.so does not contain nullok in system-auth
+      ansible.builtin.lineinfile:
+        path: "/etc/pam.d/system-auth"
+        regexp: 'pam_unix\.so.*nullok'
+        line: "auth sufficient pam_unix.so {if not \"without-nullok\":nullok}"
+        state: present
+
+    - name: Ensure pam_unix.so does not contain nullok in password-auth
+      ansible.builtin.lineinfile:
+        path: "/etc/pam.d/password-auth"
+        regexp: 'pam_unix\.so.*nullok'
+        line: "auth sufficient pam_unix.so {if not \"without-nullok\":nullok}"
+        state: present
+
+    - name: Enable the 'without-nullok' feature in authselect
+      ansible.builtin.command:
+        cmd: "authselect enable-feature without-nullok"
+        creates: "/etc/authselect/$l_profile_name/without-nullok"
+      when: ansible_facts['distribution'] == "CentOS"
+
+    - name: Apply authselect changes
+      ansible.builtin.command:
+        cmd: "authselect apply-changes"
+
+    - name: Reboot the system for changes to take effect
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        test_command: uptime
+        delay: 10
+        msg: "Rebooting to apply changes to PAM configuration"
+    
+    - name: Verify PAM changes are applied and nullok is removed
+      ansible.builtin.shell:
+        cmd: "grep 'pam_unix.so' /etc/pam.d/{password-auth,system-auth}"
+      register: pam_check
+      failed_when: pam_check.stdout.find('nullok') != -1
+      changed_when: False
+
+    - name: Show verification results
+      debug:
+        msg: "PAM check results: {{ pam_check.stdout }}"
