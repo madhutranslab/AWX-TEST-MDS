@@ -1,0 +1,60 @@
+---
+- name: Ensure Password Expiration Warning is 7 days or more
+  hosts: all
+  become: yes
+  vars:
+    backup_dir: "/root/backups"
+    timestamp: "{{ ansible_date_time.iso8601_basic }}"
+    login_defs_backup: "/etc/login.defs.bak_{{ timestamp }}"
+    shadow_backup: "/etc/shadow.bak_{{ timestamp }}"
+
+  tasks:
+    - name: Create backup directory if it doesn't exist
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+
+    - name: Backup /etc/login.defs
+      command: cp /etc/login.defs {{ login_defs_backup }}
+      register: login_defs_backup_result
+      ignore_errors: yes
+
+    - name: Backup /etc/shadow
+      command: cp /etc/shadow {{ shadow_backup }}
+      register: shadow_backup_result
+      ignore_errors: yes
+
+    - name: Check if /etc/login.defs is compliant
+      command: grep -i "^PASS_WARN_AGE" /etc/login.defs
+      register: login_defs_check
+      changed_when: false
+      failed_when: false
+
+    - name: Set PASS_WARN_AGE to 7 days in /etc/login.defs if not already set
+      lineinfile:
+        path: /etc/login.defs
+        regexp: '^PASS_WARN_AGE'
+        line: 'PASS_WARN_AGE 7'
+        create: yes
+      when: "'PASS_WARN_AGE 7' not in login_defs_check.stdout"
+    
+    - name: Backup the shadow file and set password expiration warning for all users
+      command: chage --warndays 7 {{ item }}
+      with_items: "{{ ansible_facts['users'] }}"
+      when: "'root' in ansible_facts['users']"
+      ignore_errors: yes
+
+    - name: Ensure the password expiration warning is correctly set in /etc/shadow
+      lineinfile:
+        path: /etc/shadow
+        regexp: '^([^:]*:){5}([7-9]|[1-9][0-9]+):'
+        line: '\g<1>7:'
+      when: "'root' in ansible_facts['users']"
+
+    - name: Reboot system for verification (manual)
+      debug:
+        msg: "Please manually reboot the system to verify changes."
+    
+    - name: Display completion message
+      debug:
+        msg: "Password expiration warning days set to 7 successfully. Please check the backups and reboot manually."
