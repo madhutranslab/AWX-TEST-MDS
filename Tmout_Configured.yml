@@ -1,0 +1,66 @@
+---
+- name: Ensure TMOUT is configured correctly
+  hosts: all
+  become: yes
+  tasks:
+    - name: Backup /etc/profile with timestamp
+      copy:
+        src: /etc/profile
+        dest: "/etc/profile.bak_{{ ansible_date_time.iso8601_basic }}"
+        backup: yes
+        remote_src: yes
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Backup /etc/bashrc with timestamp
+      copy:
+        src: /etc/bashrc
+        dest: "/etc/bashrc.bak_{{ ansible_date_time.iso8601_basic }}"
+        backup: yes
+        remote_src: yes
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Backup all scripts in /etc/profile.d/ with timestamp
+      find:
+        paths: /etc/profile.d/
+        patterns: "*.sh"
+      register: profile_scripts
+
+    - name: Backup profile.d scripts
+      copy:
+        src: "{{ item.path }}"
+        dest: "{{ item.path }}.bak_{{ ansible_date_time.iso8601_basic }}"
+        backup: yes
+        remote_src: yes
+      loop: "{{ profile_scripts.files }}"
+      when: profile_scripts.matched > 0
+
+    - name: Ensure TMOUT is set correctly in /etc/profile
+      lineinfile:
+        path: /etc/profile
+        regexp: '^readonly TMOUT='
+        line: 'readonly TMOUT=900'
+        create: yes
+        backup: yes
+
+    - name: Ensure TMOUT is set correctly in /etc/bashrc
+      lineinfile:
+        path: /etc/bashrc
+        regexp: '^readonly TMOUT='
+        line: 'readonly TMOUT=900'
+        create: yes
+        backup: yes
+
+    - name: Ensure TMOUT is set correctly in scripts within /etc/profile.d/
+      lineinfile:
+        path: "{{ item.path }}"
+        regexp: '^readonly TMOUT='
+        line: 'readonly TMOUT=900'
+        create: yes
+        backup: yes
+      loop: "{{ profile_scripts.files }}"
+      when: profile_scripts.matched > 0
+
+    - name: Notify user about manual reboot requirement
+      debug:
+        msg: "The system should be rebooted manually for changes to take effect. Please proceed with the reboot."
+
