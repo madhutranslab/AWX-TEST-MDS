@@ -1,32 +1,31 @@
 ---
-- name: Remove remember= from pam_unix.so in authselect profile
+- name: Remove 'remember=' from pam_unix.so with backup
   hosts: all
-  become: yes
+  become: true
   vars:
     pam_files:
       - /etc/authselect/custom/custom_hardened_profile/password-auth
       - /etc/authselect/custom/custom_hardened_profile/system-auth
-    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
-  tasks:
+    timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
 
-    - name: Backup PAM files with timestamp
-      copy:
+  tasks:
+    - name: Backup PAM file with timestamp
+      ansible.builtin.copy:
         src: "{{ item }}"
-        dest: "{{ item }}.bak_{{ timestamp }}"
-        remote_src: yes
+        dest: "{{ item }}.bak.{{ timestamp }}"
+        remote_src: true
       loop: "{{ pam_files }}"
 
-    - name: Remove remember= argument from pam_unix.so lines
-      lineinfile:
+    - name: Remove remember= from pam_unix.so line
+      ansible.builtin.lineinfile:
         path: "{{ item }}"
         regexp: '^(?P<start>\s*password\s+(requisite|required|sufficient)\s+pam_unix\.so\s+.*?)(\s+remember=\d+)(?P<end>\s.*|$)'
-        line: "\g<start>\g<end>"
+        line: '\g<start>\g<end>'
         backrefs: yes
       loop: "{{ pam_files }}"
+      register: pam_fix
 
-    - name: Apply authselect changes
-      command: authselect apply-changes
-
-    - name: Reminder to reboot the system manually
-      debug:
-        msg: "Manual reboot required to verify changes."
+    - name: Print message for manual reboot
+      ansible.builtin.debug:
+        msg: "Manual reboot is recommended after this change."
+      when: pam_fix is changed
