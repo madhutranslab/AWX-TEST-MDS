@@ -1,0 +1,57 @@
+---
+- name: Ensure pam_faillock module is enabled and backup configuration files
+  hosts: your_target_hosts
+  become: true
+  tasks:
+    - name: Get the current timestamp
+      set_fact:
+        timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+
+    - name: Backup the /etc/pam.d/system-auth file
+      copy:
+        src: /etc/pam.d/system-auth
+        dest: "/etc/pam.d/system-auth.bak_{{ timestamp }}"
+        backup: yes
+
+    - name: Backup the /etc/pam.d/password-auth file
+      copy:
+        src: /etc/pam.d/password-auth
+        dest: "/etc/pam.d/password-auth.bak_{{ timestamp }}"
+        backup: yes
+
+    - name: Verify the pam_faillock.so lines in the profile templates
+      shell: |
+        l_module_name="faillock"
+        l_pam_profile="$(head -1 /etc/authselect/authselect.conf)"
+        if grep -Pq -- '^custom/' <<< "$l_pam_profile"; then
+          l_pam_profile_path="/etc/authselect/$l_pam_profile"
+        else
+          l_pam_profile_path="/usr/share/authselect/default/$l_pam_profile"
+        fi
+        grep -P -- "bpam_$l_module_name.sob" "$l_pam_profile_path"/{password,system}-auth
+      register: pam_faillock_check
+      ignore_errors: yes
+
+    - name: Check if pam_faillock lines are present
+      debug:
+        msg: "pam_faillock lines found: {{ pam_faillock_check.stdout }}"
+      when: pam_faillock_check.stdout != ''
+
+    - name: Enable the with-faillock feature if not already enabled
+      command: authselect enable-feature with-faillock
+      when: pam_faillock_check.stdout == ''
+
+    - name: Apply changes to pam.d files if necessary
+      command: authselect apply-changes
+      when: pam_faillock_check.stdout != ''
+
+    - name: Reboot the system for verification
+      reboot:
+        msg: "Rebooting for pam_faillock verification"
+        reboot_timeout: 600
+      when: pam_faillock_check.stdout != ''
+
+    - name: Notify that reboot is required manually
+      debug:
+        msg: "Please reboot the system manually to verify changes"
+      when: pam_faillock_check.stdout == ''
