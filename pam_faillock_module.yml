@@ -1,6 +1,6 @@
 ---
 - name: Ensure pam_faillock module is enabled and backup configuration files
-  hosts: your_target_hosts
+  hosts: all  
   become: true
   tasks:
     - name: Get the current timestamp
