@@ -1,60 +1,44 @@
 ---
-- name: Ensure Password Expiration Warning is 7 days or more
+- name: Secure SSH configuration with backup
   hosts: all
-  become: yes
+  become: true
   vars:
-    backup_dir: "/root/backups"
-    timestamp: "{{ ansible_date_time.iso8601_basic }}"
-    login_defs_backup: "/etc/login.defs.bak_{{ timestamp }}"
-    shadow_backup: "/etc/shadow.bak_{{ timestamp }}"
+    ssh_config_path: /etc/ssh/sshd_config
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    backup_file: "{{ ssh_config_path }}.bak_{{ timestamp }}"
 
   tasks:
-    - name: Create backup directory if it doesn't exist
-      file:
-        path: "{{ backup_dir }}"
-        state: directory
 
-    - name: Backup /etc/login.defs
-      command: cp /etc/login.defs {{ login_defs_backup }}
-      register: login_defs_backup_result
-      ignore_errors: yes
+    - name: Check if sshd_config exists
+      stat:
+        path: "{{ ssh_config_path }}"
+      register: ssh_config_stat
 
-    - name: Backup /etc/shadow
-      command: cp /etc/shadow {{ shadow_backup }}
-      register: shadow_backup_result
-      ignore_errors: yes
+    - name: Backup sshd_config with timestamp
+      copy:
+        src: "{{ ssh_config_path }}"
+        dest: "{{ backup_file }}"
+        remote_src: true
+      when: ssh_config_stat.stat.exists
 
-    - name: Check if /etc/login.defs is compliant
-      command: grep -i "^PASS_WARN_AGE" /etc/login.defs
-      register: login_defs_check
-      changed_when: false
-      failed_when: false
-
-    - name: Set PASS_WARN_AGE to 7 days in /etc/login.defs if not already set
+    - name: Example - Disable root login (customize as needed)
       lineinfile:
-        path: /etc/login.defs
-        regexp: '^PASS_WARN_AGE'
-        line: 'PASS_WARN_AGE 7'
-        create: yes
-      when: "'PASS_WARN_AGE 7' not in login_defs_check.stdout"
-    
-    - name: Backup the shadow file and set password expiration warning for all users
-      command: chage --warndays 7 {{ item }}
-      with_items: "{{ ansible_facts['users'] }}"
-      when: "'root' in ansible_facts['users']"
-      ignore_errors: yes
+        path: "{{ ssh_config_path }}"
+        regexp: '^#?PermitRootLogin\s+.*'
+        line: 'PermitRootLogin no'
+        backup: no
 
-    - name: Ensure the password expiration warning is correctly set in /etc/shadow
+    - name: Example - Set MaxAuthTries to 3
       lineinfile:
-        path: /etc/shadow
-        regexp: '^([^:]*:){5}([7-9]|[1-9][0-9]+):'
-        line: '\g<1>7:'
-      when: "'root' in ansible_facts['users']"
+        path: "{{ ssh_config_path }}"
+        regexp: '^#?MaxAuthTries\s+.*'
+        line: 'MaxAuthTries 3'
+        backup: no
 
-    - name: Reboot system for verification (manual)
+    - name: Reminder to manually reboot
       debug:
-        msg: "Please manually reboot the system to verify changes."
-    
-    - name: Display completion message
-      debug:
-        msg: "Password expiration warning days set to 7 successfully. Please check the backups and reboot manually."
+        msg: |
+         SH configuration has been updated and backed up as:
+          {{ backup_file }}
+
+          Please reboot the system manually to apply changes and verify SSH behavior.
