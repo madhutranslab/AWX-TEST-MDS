@@ -1,0 +1,53 @@
+---
+- name: Ensure rsyslog default file permissions are configured
+  hosts: all
+  become: yes
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    filecreatemode_line: "$FileCreateMode 0640"
+    rsyslog_config_files:
+      - /etc/rsyslog.conf
+      - "{{ lookup('pipe', 'find /etc/rsyslog.d/ -type f -name \"*.conf\"').split('\n') }}"
+  tasks:
+
+    - name: Flatten rsyslog_config_files list
+      set_fact:
+        flat_config_files: "{{ rsyslog_config_files | flatten }}"
+
+    - name: Backup rsyslog config files
+      copy:
+        src: "{{ item }}"
+        dest: "{{ item }}.bak_{{ timestamp }}"
+        remote_src: yes
+      loop: "{{ flat_config_files }}"
+      when: item is file
+
+    - name: Ensure $FileCreateMode 0640 is set in config files
+      lineinfile:
+        path: "{{ item }}"
+        regexp: '^\s*\$FileCreateMode'
+        line: "{{ filecreatemode_line }}"
+        create: yes
+        insertafter: EOF
+      loop: "{{ flat_config_files }}"
+      notify: Restart rsyslog
+      when: item is file
+
+    - name: Show configured $FileCreateMode entries
+      shell: grep -H '^\s*\$FileCreateMode' "{{ item }}"
+      loop: "{{ flat_config_files }}"
+      register: mode_check
+      changed_when: false
+      when: item is file
+
+    - name: Display configured FileCreateMode lines
+      debug:
+        var: mode_check.results
+
+  handlers:
+    - name: Restart rsyslog
+      systemd:
+        name: rsyslog
+        state: restarted
+        enabled: yes
+
