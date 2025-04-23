@@ -4,7 +4,6 @@
   become: yes
   tasks:
 
-    # Backup the important configuration files with timestamp
     - name: Backup system-auth with timestamp
       command: cp /etc/pam.d/system-auth /etc/pam.d/system-auth.bak_{{ ansible_date_time.iso8601 }}
       register: system_auth_backup
@@ -17,7 +16,6 @@
       command: cp /etc/security/pwhistory.conf /etc/security/pwhistory.conf.bak_{{ ansible_date_time.iso8601 }}
       register: pwhistory_backup
 
-    # Ensure password history remember value is set to 24
     - name: Set remember=24 in /etc/security/pwhistory.conf
       lineinfile:
         path: /etc/security/pwhistory.conf
@@ -25,14 +23,13 @@
         line: 'remember = 24'
         backup: yes
 
-    # Ensure pam_pwhistory.so has remember=24 in /etc/pam.d/system-auth and /etc/pam.d/password-auth
     - name: Set remember=24 in /etc/pam.d/system-auth
       lineinfile:
         path: /etc/pam.d/system-auth
         regexp: '^\s*password\s+(requisite|required|sufficient)\s+pam_pwhistory\.so'
         line: 'password    requisite    pam_pwhistory.so use_authtok enforce_for_root remember=24'
         backup: yes
-        notify: Apply authselect changes
+      notify: Apply authselect changes
 
     - name: Set remember=24 in /etc/pam.d/password-auth
       lineinfile:
@@ -40,14 +37,8 @@
         regexp: '^\s*password\s+(requisite|required|sufficient)\s+pam_pwhistory\.so'
         line: 'password    requisite    pam_pwhistory.so use_authtok enforce_for_root remember=24'
         backup: yes
-        notify: Apply authselect changes
+      notify: Apply authselect changes
 
-    # Apply changes via authselect (if using it)
-    - name: Apply authselect changes
-      command: authselect apply-changes
-      when: system_auth_backup.changed or password_auth_backup.changed
-
-    # Notify user to manually reboot the system
     - name: Notify user to manually reboot the system
       debug:
         msg: "Changes applied. Please manually reboot the system for the changes to take effect."
