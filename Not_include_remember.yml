@@ -1,45 +1,46 @@
 ---
-- name: Ensure pam_unix does not include remember argument
+- name: Remove remember= from pam_unix.so and backup config
   hosts: all
-  become: yes
+  become: true
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%F_%H-%M-%S') }}"
+    authselect_conf_path: /etc/authselect/authselect.conf
+
   tasks:
-    
-    - name: Backup system-auth and password-auth files
+    - name: Read the current authselect profile
+      command: head -1 {{ authselect_conf_path }}
+      register: profile_output
+
+    - name: Set pam profile path
+      set_fact:
+        pam_profile: "{{ profile_output.stdout }}"
+        pam_profile_path: >-
+          {{ '/etc/authselect/' + profile_output.stdout
+             if profile_output.stdout.startswith('custom/')
+             else '/usr/share/authselect/default/' + profile_output.stdout }}
+
+    - name: Create backup of password-auth and system-auth with timestamp
       copy:
-        src: "/etc/pam.d/{{ item }}"
-        dest: "/etc/pam.d/{{ item }}.bak_{{ ansible_date_time.iso8601 }}"
-        backup: yes
+        src: "{{ item }}"
+        dest: "{{ item }}.bak_{{ timestamp }}"
+        remote_src: yes
       loop:
-        - system-auth
-        - password-auth
+        - "{{ pam_profile_path }}/password-auth"
+        - "{{ pam_profile_path }}/system-auth"
 
- 
     - name: Remove remember=n from pam_unix.so lines
-      lineinfile:
-        path: "/etc/pam.d/{{ item }}"
-        regexp: '^(\s*password\s+(requisite|required|sufficient)\s+pam_unix.so\s+.*)(remember=[1-9][0-9]*)(\s*.*)$'
-        line: '\1\3'
-        backrefs: yes
+      replace:
+        path: "{{ item }}"
+        regexp: '(^\\s*password\\s+(?:requisite|required|sufficient)\\s+pam_unix\\.so\\s+[^#\\n\\r]*?)\\s*remember=[0-9]+(\\s*.*)?$'
+        replace: '\\1\\2'
+        backup: no
       loop:
-        - system-auth
-        - password-auth
+        - "{{ pam_profile_path }}/password-auth"
+        - "{{ pam_profile_path }}/system-auth"
 
-  
-    - name: Apply changes with authselect
+    - name: Apply changes via authselect
       command: authselect apply-changes
 
-    
-    - name: Verify no remember argument in system-auth
-      shell: grep -P '^password\s+sufficient\s+pam_unix.so\s+.*remember=' /etc/pam.d/system-auth
-      register: verify_system_auth
-      failed_when: verify_system_auth.stdout != ""
-
-    - name: Verify no remember argument in password-auth
-      shell: grep -P '^password\s+sufficient\s+pam_unix.so\s+.*remember=' /etc/pam.d/password-auth
-      register: verify_password_auth
-      failed_when: verify_password_auth.stdout != ""
-
-    - name: Notify success
+    - name: Notify manual reboot
       debug:
-        msg: "Successfully removed remember=n argument from pam_unix.so"
-      when: verify_system_auth.stdout == "" and verify_password_auth.stdout == ""
+        msg: "REMINDER: Please manually reboot the system to complete changes."
