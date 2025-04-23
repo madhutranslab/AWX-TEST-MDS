@@ -1,31 +1,45 @@
 ---
-- name: Remove 'remember=' from pam_unix.so with backup
-  hosts: all
-  become: true
-  vars:
-    pam_files:
-      - /etc/authselect/custom/custom_hardened_profile/password-auth
-      - /etc/authselect/custom/custom_hardened_profile/system-auth
-    timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
-
+- name: Ensure pam_unix does not include remember argument
+  hosts: prod
+  become: yes
   tasks:
-    - name: Backup PAM file with timestamp
-      ansible.builtin.copy:
-        src: "{{ item }}"
-        dest: "{{ item }}.bak.{{ timestamp }}"
-        remote_src: true
-      loop: "{{ pam_files }}"
+    
+    - name: Backup system-auth and password-auth files
+      copy:
+        src: "/etc/pam.d/{{ item }}"
+        dest: "/etc/pam.d/{{ item }}.bak_{{ ansible_date_time.iso8601 }}"
+        backup: yes
+      loop:
+        - system-auth
+        - password-auth
 
-    - name: Remove remember= from pam_unix.so line
-      ansible.builtin.lineinfile:
-        path: "{{ item }}"
-        regexp: '^(?P<start>\s*password\s+(requisite|required|sufficient)\s+pam_unix\.so\s+.*?)(\s+remember=\d+)(?P<end>\s.*|$)'
-        line: '\g<start>\g<end>'
+ 
+    - name: Remove remember=n from pam_unix.so lines
+      lineinfile:
+        path: "/etc/pam.d/{{ item }}"
+        regexp: '^(\s*password\s+(requisite|required|sufficient)\s+pam_unix.so\s+.*)(remember=[1-9][0-9]*)(\s*.*)$'
+        line: '\1\3'
         backrefs: yes
-      loop: "{{ pam_files }}"
-      register: pam_fix
+      loop:
+        - system-auth
+        - password-auth
 
-    - name: Print message for manual reboot
-      ansible.builtin.debug:
-        msg: "Manual reboot is recommended after this change."
-      when: pam_fix is changed
+  
+    - name: Apply changes with authselect
+      command: authselect apply-changes
+
+    
+    - name: Verify no remember argument in system-auth
+      shell: grep -P '^password\s+sufficient\s+pam_unix.so\s+.*remember=' /etc/pam.d/system-auth
+      register: verify_system_auth
+      failed_when: verify_system_auth.stdout != ""
+
+    - name: Verify no remember argument in password-auth
+      shell: grep -P '^password\s+sufficient\s+pam_unix.so\s+.*remember=' /etc/pam.d/password-auth
+      register: verify_password_auth
+      failed_when: verify_password_auth.stdout != ""
+
+    - name: Notify success
+      debug:
+        msg: "Successfully removed remember=n argument from pam_unix.so"
+      when: verify_system_auth.stdout == "" and verify_password_auth.stdout == ""
