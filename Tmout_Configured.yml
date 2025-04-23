@@ -1,25 +1,25 @@
 ---
-- name: Ensure TMOUT is configured correctly
+- name: Configure TMOUT settings properly
   hosts: all
   become: yes
+  vars:
+    tmout_value: 900
   tasks:
-    - name: Backup /etc/profile with timestamp
+    - name: Backup /etc/profile
       copy:
         src: /etc/profile
         dest: "/etc/profile.bak_{{ ansible_date_time.iso8601_basic }}"
         backup: yes
         remote_src: yes
-      when: ansible_facts['os_family'] == 'RedHat'
 
-    - name: Backup /etc/bashrc with timestamp
+    - name: Backup /etc/bashrc
       copy:
         src: /etc/bashrc
         dest: "/etc/bashrc.bak_{{ ansible_date_time.iso8601_basic }}"
         backup: yes
         remote_src: yes
-      when: ansible_facts['os_family'] == 'RedHat'
 
-    - name: Backup all scripts in /etc/profile.d/ with timestamp
+    - name: Find all profile.d scripts
       find:
         paths: /etc/profile.d/
         patterns: "*.sh"
@@ -34,33 +34,60 @@
       loop: "{{ profile_scripts.files }}"
       when: profile_scripts.matched > 0
 
-    - name: Ensure TMOUT is set correctly in /etc/profile
-      lineinfile:
+    - name: Remove existing TMOUT lines from /etc/profile
+      replace:
         path: /etc/profile
-        regexp: '^readonly TMOUT='
-        line: 'readonly TMOUT=900'
-        create: yes
+        regexp: '^(export\s+)?(readonly\s+)?TMOUT=.*'
+        replace: ''
         backup: yes
 
-    - name: Ensure TMOUT is set correctly in /etc/bashrc
-      lineinfile:
+    - name: Remove existing TMOUT lines from /etc/bashrc
+      replace:
         path: /etc/bashrc
-        regexp: '^readonly TMOUT='
-        line: 'readonly TMOUT=900'
-        create: yes
+        regexp: '^(export\s+)?(readonly\s+)?TMOUT=.*'
+        replace: ''
         backup: yes
 
-    - name: Ensure TMOUT is set correctly in scripts within /etc/profile.d/
-      lineinfile:
+    - name: Remove existing TMOUT lines from profile.d scripts
+      replace:
         path: "{{ item.path }}"
-        regexp: '^readonly TMOUT='
-        line: 'readonly TMOUT=900'
-        create: yes
+        regexp: '^(export\s+)?(readonly\s+)?TMOUT=.*'
+        replace: ''
         backup: yes
       loop: "{{ profile_scripts.files }}"
       when: profile_scripts.matched > 0
 
-    - name: Notify user about manual reboot requirement
-      debug:
-        msg: "The system should be rebooted manually for changes to take effect. Please proceed with the reboot."
+    - name: Add proper TMOUT settings to /etc/profile
+      blockinfile:
+        path: /etc/profile
+        block: |
+          TMOUT={{ tmout_value }}
+          readonly TMOUT
+          export TMOUT
+        marker: "# {mark} ANSIBLE TMOUT BLOCK"
+        backup: yes
 
+    - name: Add proper TMOUT settings to /etc/bashrc
+      blockinfile:
+        path: /etc/bashrc
+        block: |
+          TMOUT={{ tmout_value }}
+          readonly TMOUT
+          export TMOUT
+        marker: "# {mark} ANSIBLE TMOUT BLOCK"
+        backup: yes
+
+    - name: Create proper TMOUT settings script in /etc/profile.d/
+      copy:
+        dest: /etc/profile.d/tmout.sh
+        content: |
+          #!/bin/bash
+          TMOUT={{ tmout_value }}
+          readonly TMOUT
+          export TMOUT
+        mode: '0755'
+        backup: yes
+
+    - name: Notify user
+      debug:
+        msg: "TMOUT configured successfully. You may need to re-login or reboot for changes to take full effect."
