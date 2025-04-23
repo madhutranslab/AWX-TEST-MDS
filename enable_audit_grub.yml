@@ -29,9 +29,6 @@
       notify:
         - Rebuild GRUB2 config
 
-    - name: Rebuild GRUB2 config
-      command: grub2-mkconfig -o /boot/grub2/grub.cfg
-
     - name: Pause and wait for manual reboot
       pause:
         prompt: "The system needs to be rebooted to apply the changes. Please reboot manually and press Enter to continue."
@@ -47,3 +44,8 @@
       fail:
         msg: "Audit parameter not found in GRUB2 configuration."
       when: audit_check.stdout == ''
+
+  handlers:
+    - name: Rebuild GRUB2 config
+      command: grub2-mkconfig -o /boot/grub2/grub.cfg
+      become: yes
