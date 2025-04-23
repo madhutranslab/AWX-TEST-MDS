@@ -5,15 +5,11 @@
   tasks:
     - name: Backup current GRUB2 configuration
       copy:
-        src: /etc/default/grub
-        dest: "/etc/default/grub.bak_{{ ansible_date_time.iso8601_basic }}"
+        src: "{{ grub_config_path }}"
+        dest: "/{{ grub_config_path | basename }}.bak_{{ ansible_date_time.iso8601_basic }}"
         remote_src: yes
-
-    - name: Backup current GRUB2 config file
-      copy:
-        src: /boot/grub2/grub.cfg
-        dest: "/boot/grub2/grub.cfg.bak_{{ ansible_date_time.iso8601_basic }}"
-        remote_src: yes
+      vars:
+        grub_config_path: "{{ lookup('env', 'GRUB_CONFIG_PATH') | default('/boot/grub2/grub.cfg') }}"
 
     - name: Add audit=1 to GRUB2 kernel args
       lineinfile:
