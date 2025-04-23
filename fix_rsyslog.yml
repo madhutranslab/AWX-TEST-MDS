@@ -1,0 +1,58 @@
+---
+- name: Fix rsyslog configuration for CIS Benchmark 5.1.1.5
+  hosts: localhost
+  become: yes
+  vars:
+    rsyslog_conf: /etc/rsyslog.conf
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    backup_path: "{{ rsyslog_conf }}.bak_{{ timestamp }}"
+    required_rules:
+      - '*.emerg :omusrmsg:*'
+      - 'auth,authpriv.* /var/log/secure'
+      - 'mail.* -/var/log/mail'
+      - 'mail.info -/var/log/mail.info'
+      - 'mail.warning -/var/log/mail.warn'
+      - 'mail.err /var/log/mail.err'
+      - 'cron.* /var/log/cron'
+      - '*.=warning;*.=err -/var/log/warn'
+      - '*.crit /var/log/warn'
+      - '*.*;mail.none;news.none -/var/log/messages'
+      - 'local0,local1.* -/var/log/localmessages'
+      - 'local2,local3.* -/var/log/localmessages'
+      - 'local4,local5.* -/var/log/localmessages'
+      - 'local6,local7.* -/var/log/localmessages'
+
+  tasks:
+
+    - name: Backup original rsyslog.conf with timestamp
+      copy:
+        src: "{{ rsyslog_conf }}"
+        dest: "{{ backup_path }}"
+        remote_src: yes
+
+    - name: Remove all previously added rules (optional cleanup)
+      lineinfile:
+        path: "{{ rsyslog_conf }}"
+        regexp: "{{ item | regex_escape }}"
+        state: absent
+      loop: "{{ required_rules }}"
+      ignore_errors: yes
+
+    - name: Ensure required rsyslog rules are present at the end of config
+      blockinfile:
+        path: "{{ rsyslog_conf }}"
+        marker: "# {mark} ANSIBLE CIS 5.1.1.5 RULES"
+        block: |
+          {% for rule in required_rules %}
+          {{ rule }}
+          {% endfor %}
+
+    - name: Restart rsyslog to apply new configuration
+      systemd:
+        name: rsyslog
+        state: restarted
+        enabled: yes
+
+    - name: Notify for manual reboot
+      debug:
+        msg: "Please manually reboot the system to complete the changes."
