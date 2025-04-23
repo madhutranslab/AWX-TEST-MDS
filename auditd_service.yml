@@ -1,0 +1,38 @@
+---
+- name: Enable auditd service with backup and manual reboot reminder
+  hosts: all
+  become: true
+
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%F_%H-%M-%S') }}"
+
+  tasks:
+    - name: Ensure auditd is installed
+      package:
+        name: audit
+        state: present
+
+    - name: Backup current auditd config if exists
+      copy:
+        src: /etc/audit/auditd.conf
+        dest: "/etc/audit/auditd.conf.bak_{{ timestamp }}"
+        remote_src: yes
+      when: ansible_facts['distribution'] != 'Ubuntu' and ansible_facts['os_family'] == 'RedHat'
+
+    - name: Enable and start auditd service
+      systemd:
+        name: auditd
+        enabled: true
+        state: started
+
+    - name: Display auditd status for manual verification
+      shell: systemctl is-enabled auditd
+      register: auditd_status
+      changed_when: false
+
+    - name: Notify user
+      debug:
+        msg: >
+          auditd service status: {{ auditd_status.stdout }}.
+          If you modified GRUB or kernel audit parameters,
+          please manually reboot the system to apply changes.
