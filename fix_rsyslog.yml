@@ -1,58 +1,57 @@
 ---
-- name: Fix rsyslog configuration for CIS Benchmark 5.1.1.5
+- name: Secure rsyslog configuration as per CIS benchmarks
   hosts: localhost
-  become: yes
+  become: true
   vars:
-    rsyslog_conf: /etc/rsyslog.conf
-    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
-    backup_path: "{{ rsyslog_conf }}.bak_{{ timestamp }}"
-    required_rules:
-      - '*.emerg :omusrmsg:*'
-      - 'auth,authpriv.* /var/log/secure'
-      - 'mail.* -/var/log/mail'
-      - 'mail.info -/var/log/mail.info'
-      - 'mail.warning -/var/log/mail.warn'
-      - 'mail.err /var/log/mail.err'
-      - 'cron.* /var/log/cron'
-      - '*.=warning;*.=err -/var/log/warn'
-      - '*.crit /var/log/warn'
-      - '*.*;mail.none;news.none -/var/log/messages'
-      - 'local0,local1.* -/var/log/localmessages'
-      - 'local2,local3.* -/var/log/localmessages'
-      - 'local4,local5.* -/var/log/localmessages'
-      - 'local6,local7.* -/var/log/localmessages'
+    rsyslog_conf_path: /etc/rsyslog.conf
+    rsyslog_conf_backup: "/etc/rsyslog.conf.{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
 
   tasks:
 
-    - name: Backup original rsyslog.conf with timestamp
+    - name: Ensure rsyslog is installed
+      package:
+        name: rsyslog
+        state: present
+
+    - name: Backup current rsyslog.conf
       copy:
-        src: "{{ rsyslog_conf }}"
-        dest: "{{ backup_path }}"
+        src: "{{ rsyslog_conf_path }}"
+        dest: "{{ rsyslog_conf_backup }}"
         remote_src: yes
 
-    - name: Remove all previously added rules (optional cleanup)
+    - name: Harden rsyslog config - enable high precision timestamps
       lineinfile:
-        path: "{{ rsyslog_conf }}"
-        regexp: "{{ item | regex_escape }}"
-        state: absent
-      loop: "{{ required_rules }}"
-      ignore_errors: yes
+        path: "{{ rsyslog_conf_path }}"
+        regexp: '^\\$ActionFileDefaultTemplate'
+        line: '$ActionFileDefaultTemplate RSYSLOG_TraditionalFileFormat'
+        create: yes
+        state: present
 
-    - name: Ensure required rsyslog rules are present at the end of config
-      blockinfile:
-        path: "{{ rsyslog_conf }}"
-        marker: "# {mark} ANSIBLE CIS 5.1.1.5 RULES"
-        block: |
-          {% for rule in required_rules %}
-          {{ rule }}
-          {% endfor %}
+    - name: Ensure log files are written synchronously
+      lineinfile:
+        path: "{{ rsyslog_conf_path }}"
+        regexp: '^\\$ActionFileEnableSync'
+        line: '$ActionFileEnableSync on'
+        create: yes
+        state: present
+
+    - name: Ensure rsyslog does not accept remote messages unless needed
+      lineinfile:
+        path: "{{ rsyslog_conf_path }}"
+        regexp: '^(\\$ModLoad imudp|\\$UDPServerRun|\\$ModLoad imtcp|\\$InputTCPServerRun)'
+        state: absent
+
+    - name: Unmask rsyslog service (if masked)
+      command: systemctl unmask rsyslog
+      ignore_errors: true
+
+    - name: Enable rsyslog service
+      systemd:
+        name: rsyslog
+        enabled: true
 
     - name: Restart rsyslog to apply new configuration
       systemd:
         name: rsyslog
         state: restarted
-        enabled: yes
-
-    - name: Notify for manual reboot
-      debug:
-        msg: "Please manually reboot the system to complete the changes."
+        daemon_reload: yes
