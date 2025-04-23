@@ -3,13 +3,22 @@
   hosts: all
   become: yes
   tasks:
+    - name: Find the GRUB2 configuration file
+      command: "find /boot -name grub.cfg"
+      register: grub_config_file
+      changed_when: false
+
+    - name: Set the correct GRUB config path
+      set_fact:
+        grub_config_path: "{{ grub_config_file.stdout_lines[0] }}"
+      when: grub_config_file.stdout_lines | length > 0
+
     - name: Backup current GRUB2 configuration
       copy:
         src: "{{ grub_config_path }}"
         dest: "/{{ grub_config_path | basename }}.bak_{{ ansible_date_time.iso8601_basic }}"
         remote_src: yes
-      vars:
-        grub_config_path: "{{ lookup('env', 'GRUB_CONFIG_PATH') | default('/boot/grub2/grub.cfg') }}"
+      when: grub_config_path is defined
 
     - name: Add audit=1 to GRUB2 kernel args
       lineinfile:
@@ -38,4 +47,3 @@
       fail:
         msg: "Audit parameter not found in GRUB2 configuration."
       when: audit_check.stdout == ''
-
