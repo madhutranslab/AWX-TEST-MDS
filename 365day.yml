@@ -1,7 +1,7 @@
 ---
 - name: Backup and configure sshd_config
-  hosts: your_target_host
-  become: yes  # Use sudo to modify system files
+  hosts: all
+  become: yes 
   tasks:
     - name: Create backup of sshd_config with timestamp
       copy:
