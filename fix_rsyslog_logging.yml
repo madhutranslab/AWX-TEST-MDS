@@ -1,0 +1,52 @@
+---
+- name: Ensure rsyslog is configured per CIS Benchmark
+  hosts: all
+  become: true
+  vars:
+    rsyslog_conf: /etc/rsyslog.conf
+    timestamp: "{{ lookup('pipe', 'date +%F_%H-%M-%S') }}"
+    backup_path: "{{ rsyslog_conf }}.bak_{{ timestamp }}"
+    rsyslog_rules:
+      - '*.emerg :omusrmsg:*'
+      - 'auth,authpriv.* /var/log/secure'
+      - 'mail.* -/var/log/mail'
+      - 'mail.info -/var/log/mail.info'
+      - 'mail.warning -/var/log/mail.warn'
+      - 'mail.err /var/log/mail.err'
+      - 'cron.* /var/log/cron'
+      - '*.=warning;*.=err -/var/log/warn'
+      - '*.crit /var/log/warn'
+      - '*.*;mail.none;news.none -/var/log/messages'
+      - 'local0,local1.* -/var/log/localmessages'
+      - 'local2,local3.* -/var/log/localmessages'
+      - 'local4,local5.* -/var/log/localmessages'
+      - 'local6,local7.* -/var/log/localmessages'
+
+  tasks:
+    - name: Backup rsyslog.conf with timestamp
+      copy:
+        src: "{{ rsyslog_conf }}"
+        dest: "{{ backup_path }}"
+        remote_src: true
+
+    - name: Ensure required rsyslog rules are present
+      blockinfile:
+        path: "{{ rsyslog_conf }}"
+        marker: "# {mark} CIS RSYSLOG RULE"
+        block: |
+          {% for rule in rsyslog_rules %}
+          {{ rule }}
+          {% endfor %}
+      notify: Restart rsyslog
+
+    - name: Reminder to reboot manually after this playbook
+      debug:
+        msg: |
+          Manual reboot is recommended after running this playbook.
+          Backup file created at: {{ backup_path }}
+
+  handlers:
+    - name: Restart rsyslog
+      systemd:
+        name: rsyslog
+        state: restarted
