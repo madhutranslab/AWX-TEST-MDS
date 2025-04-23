@@ -10,7 +10,7 @@
         src: /etc/profile
         dest: "/backup/etc/profile.bak_{{ ansible_date_time.iso8601_basic }}"
         backup: yes
-      when: umask_profile.rc != 0
+      when: (umask_profile.rc | default(0)) != 0
 
     # Backup /etc/bashrc with timestamp
     - name: Backup /etc/bashrc
@@ -18,7 +18,7 @@
         src: /etc/bashrc
         dest: "/backup/etc/bashrc.bak_{{ ansible_date_time.iso8601_basic }}"
         backup: yes
-      when: umask_bashrc.rc != 0
+      when: (umask_bashrc.rc | default(0)) != 0
 
     # Backup /etc/login.defs with timestamp
     - name: Backup /etc/login.defs
@@ -26,7 +26,7 @@
         src: /etc/login.defs
         dest: "/backup/etc/login.defs.bak_{{ ansible_date_time.iso8601_basic }}"
         backup: yes
-      when: umask_login_defs.rc != 0
+      when: (umask_login_defs.rc | default(0)) != 0
 
     # Check umask setting in /etc/profile
     - name: Check umask in /etc/profile
@@ -40,7 +40,7 @@
         content: "umask 027\n"
         dest: /etc/profile.d/50-systemwide_umask.sh
         mode: '0644'
-      when: umask_profile.rc != 0
+      when: (umask_profile.rc | default(0)) != 0
 
     # Check umask setting in /etc/bashrc
     - name: Check umask in /etc/bashrc
@@ -54,7 +54,7 @@
         content: "umask 027\n"
         dest: /etc/profile.d/50-systemwide_umask.sh
         mode: '0644'
-      when: umask_bashrc.rc != 0
+      when: (umask_bashrc.rc | default(0)) != 0
 
     # Check umask setting in /etc/login.defs
     - name: Check umask in /etc/login.defs
@@ -68,7 +68,7 @@
         path: /etc/login.defs
         regexp: '^UMASK'
         line: 'UMASK 027'
-      when: umask_login_defs.rc != 0
+      when: (umask_login_defs.rc | default(0)) != 0
 
     # Ensure /etc/profile.d/50-systemwide_umask.sh exists with correct permissions
     - name: Ensure umask is set in /etc/profile.d
@@ -76,4 +76,4 @@
         path: /etc/profile.d/50-systemwide_umask.sh
         state: touch
         mode: '0644'
-      when: umask_profile.rc != 0 or umask_bashrc.rc != 0 or umask_login_defs.rc != 0
+      when: (umask_profile.rc | default(0)) != 0 or (umask_bashrc.rc | default(0)) != 0 or (umask_login_defs.rc | default(0)) != 0
