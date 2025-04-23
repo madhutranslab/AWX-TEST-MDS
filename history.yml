@@ -1,39 +1,35 @@
----
-- name: Ensure password history is configured correctly (CIS 4.4.3.3.1)
+- name: Enforce password history for all users including root
   hosts: all
-  become: yes
+  become: true
   vars:
-    pam_files:
-      - system-auth
-      - password-auth
-    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    pwhistory_conf: /etc/security/pwhistory.conf
+
   tasks:
 
-    - name: Set remember = 24 in /etc/security/pwhistory.conf
+    - name: Create timestamp for backup
+      set_fact:
+        timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+
+    - name: Backup pwhistory.conf with timestamp
+      copy:
+        src: "{{ pwhistory_conf }}"
+        dest: "{{ pwhistory_conf }}.bak_{{ timestamp }}"
+        remote_src: true
+
+    - name: Ensure 'remember = 24' is set in pwhistory.conf
       lineinfile:
-        path: /etc/security/pwhistory.conf
+        path: "{{ pwhistory_conf }}"
         regexp: '^remember\s*='
         line: 'remember = 24'
         create: yes
-        backup: yes
 
-    - name: Back up PAM files with timestamp
-      copy:
-        src: "/etc/pam.d/{{ item }}"
-        dest: "/etc/pam.d/{{ item }}.bak_{{ timestamp }}"
-        remote_src: yes
-      loop: "{{ pam_files }}"
+    - name: Ensure 'enforce_for_root' is present in pwhistory.conf
+      lineinfile:
+        path: "{{ pwhistory_conf }}"
+        line: 'enforce_for_root'
+        state: present
+        create: yes
 
-    - name: Remove remember= argument from pam_pwhistory.so lines in authselect custom PAM files
-      shell: |
-        auth_file="/etc/authselect/$(grep '^custom/' /etc/authselect/authselect.conf | head -n1)/{{ item }}"
-        sed -ri 's/(^\s*password\s+(requisite|required|sufficient)\s+pam_pwhistory.so.*)(\s+remember=\s*\S+)(.*$)/\1\4/' "$auth_file"
-      loop: "{{ pam_files }}"
-
-    - name: Apply authselect changes
-      command: authselect apply-changes
-
-    - name: Notify user to manually reboot the system
+    - name: Notify for manual reboot
       debug:
-        msg: "Manual reboot required for password history changes to take full effect."
-
+        msg: "Changes applied. Please reboot the system manually to apply them."
