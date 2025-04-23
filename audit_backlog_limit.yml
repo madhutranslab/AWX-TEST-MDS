@@ -1,43 +1,54 @@
 ---
-- name: Ensure audit and backlog limit is set in GRUB2
+- name: Ensure auditing is enabled and backlog limit is sufficient
   hosts: all
   become: yes
+  vars:
+    grub_file_bios: /boot/grub2/grub.cfg
+    grub_file_uefi: /boot/efi/EFI/redhat/grub.cfg
+    grubenv_file: /boot/grub2/grubenv
+    audit_args: "audit=1 audit_backlog_limit=8192"
+
   tasks:
 
-    - name: Gather current GRUB_CMDLINE_LINUX
-      command: grubby --info=ALL
-      register: grubby_info
+    - name: Check if BIOS GRUB config exists
+      stat:
+        path: "{{ grub_file_bios }}"
+      register: grub_bios
 
-    - name: Backup current GRUB2 config
+    - name: Check if UEFI GRUB config exists
+      stat:
+        path: "{{ grub_file_uefi }}"
+      register: grub_uefi
+
+    - name: Set GRUB config path dynamically
+      set_fact:
+        grub_cfg_path: "{{ grub_file_bios if grub_bios.stat.exists else grub_file_uefi }}"
+
+    - name: Backup current GRUB config (manual restore if needed)
       copy:
-        src: /boot/grub2/grub.cfg
-        dest: /boot/grub2/grub.cfg.bak
+        src: "{{ grub_cfg_path }}"
+        dest: "{{ grub_cfg_path }}.bak"
         remote_src: yes
-      when: ansible_facts['os_family'] == "RedHat"
+      when: grub_bios.stat.exists or grub_uefi.stat.exists
 
-    - name: Ensure audit=1 is present in kernel args
-      command: grubby --update-kernel=ALL --args="audit=1"
-      register: audit_flag
+    - name: Ensure GRUB_CMDLINE_LINUX contains audit args
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX="(.*)"'
+        line: 'GRUB_CMDLINE_LINUX="\1 {{ audit_args }}"'
+        backrefs: yes
 
-    - name: Ensure audit_backlog_limit=8192 is present
-      command: grubby --update-kernel=ALL --args="audit_backlog_limit=8192"
-      register: backlog_flag
+    - name: Update GRUB with audit parameters
+      command: grubby --update-kernel=ALL --args="{{ audit_args }}"
 
-    - name: Ensure grubenv file exists (required for grub2-editenv)
-      file:
-        path: /boot/grub2/grubenv
-        state: touch
-        mode: '0644'
+    - name: Rebuild GRUB config file (for BIOS systems)
+      command: grub2-mkconfig -o "{{ grub_file_bios }}"
+      when: grub_bios.stat.exists
 
-    - name: Regenerate GRUB2 configuration
-      command: grub2-mkconfig -o /boot/grub2/grub.cfg
-      register: grub_config_result
-      failed_when: grub_config_result.rc != 0 and
-                   "'cannot rename the file' not in grub_config_result.stderr"
+    - name: Rebuild GRUB config file (for UEFI systems)
+      command: grub2-mkconfig -o "{{ grub_file_uefi }}"
+      when: grub_uefi.stat.exists
 
-    - name: Display manual reboot reminder
+    - name: Reminder to reboot manually
       debug:
-        msg: |
-          Kernel parameters updated. A reboot is required to apply changes.
-          Please reboot the system manually at your convenience.
-
+        msg: "Manual reboot required for GRUB changes to take effect. Please reboot the system."
