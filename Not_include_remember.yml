@@ -1,6 +1,6 @@
 ---
 - name: Ensure pam_unix does not include remember argument
-  hosts: prod
+  hosts: all
   become: yes
   tasks:
     
