@@ -1,48 +1,39 @@
 ---
-- name: Ensure password history is configured
+- name: Ensure password history is configured correctly (CIS 4.4.3.3.1)
   hosts: all
   become: yes
+  vars:
+    pam_files:
+      - system-auth
+      - password-auth
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
   tasks:
 
-    - name: Backup system-auth with timestamp
-      command: cp /etc/pam.d/system-auth /etc/pam.d/system-auth.bak_{{ ansible_date_time.iso8601 }}
-      register: system_auth_backup
-
-    - name: Backup password-auth with timestamp
-      command: cp /etc/pam.d/password-auth /etc/pam.d/password-auth.bak_{{ ansible_date_time.iso8601 }}
-      register: password_auth_backup
-
-    - name: Backup pwhistory.conf with timestamp
-      command: cp /etc/security/pwhistory.conf /etc/security/pwhistory.conf.bak_{{ ansible_date_time.iso8601 }}
-      register: pwhistory_backup
-
-    - name: Set remember=24 in /etc/security/pwhistory.conf
+    - name: Set remember = 24 in /etc/security/pwhistory.conf
       lineinfile:
         path: /etc/security/pwhistory.conf
-        regexp: '^remember='
+        regexp: '^remember\s*='
         line: 'remember = 24'
+        create: yes
         backup: yes
 
-    - name: Set remember=24 in /etc/pam.d/system-auth
-      lineinfile:
-        path: /etc/pam.d/system-auth
-        regexp: '^\s*password\s+(requisite|required|sufficient)\s+pam_pwhistory\.so'
-        line: 'password    requisite    pam_pwhistory.so use_authtok enforce_for_root remember=24'
-        backup: yes
-      notify: Apply authselect changes
+    - name: Back up PAM files with timestamp
+      copy:
+        src: "/etc/pam.d/{{ item }}"
+        dest: "/etc/pam.d/{{ item }}.bak_{{ timestamp }}"
+        remote_src: yes
+      loop: "{{ pam_files }}"
 
-    - name: Set remember=24 in /etc/pam.d/password-auth
-      lineinfile:
-        path: /etc/pam.d/password-auth
-        regexp: '^\s*password\s+(requisite|required|sufficient)\s+pam_pwhistory\.so'
-        line: 'password    requisite    pam_pwhistory.so use_authtok enforce_for_root remember=24'
-        backup: yes
-      notify: Apply authselect changes
+    - name: Remove remember= argument from pam_pwhistory.so lines in authselect custom PAM files
+      shell: |
+        auth_file="/etc/authselect/$(grep '^custom/' /etc/authselect/authselect.conf | head -n1)/{{ item }}"
+        sed -ri 's/(^\s*password\s+(requisite|required|sufficient)\s+pam_pwhistory.so.*)(\s+remember=\s*\S+)(.*$)/\1\4/' "$auth_file"
+      loop: "{{ pam_files }}"
+
+    - name: Apply authselect changes
+      command: authselect apply-changes
 
     - name: Notify user to manually reboot the system
       debug:
-        msg: "Changes applied. Please manually reboot the system for the changes to take effect."
+        msg: "Manual reboot required for password history changes to take full effect."
 
-  handlers:
-    - name: Apply authselect changes
-      command: authselect apply-changes
