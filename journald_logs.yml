@@ -2,7 +2,7 @@
 - name: Configure journald to forward logs to rsyslog
   hosts: all 
   become: yes  
-
+  gather_facts: yes  
   tasks:
     - name: Backup existing journald configuration
       copy:
