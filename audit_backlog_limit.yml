@@ -1,58 +1,43 @@
 ---
-- name: Ensure audit_backlog_limit is sufficient
+- name: Ensure audit and backlog limit is set in GRUB2
   hosts: all
   become: yes
   tasks:
 
-    - name: Gather facts about the system
-      ansible.builtin.gather_facts:
+    - name: Gather current GRUB_CMDLINE_LINUX
+      command: grubby --info=ALL
+      register: grubby_info
 
-    - name: Backup current GRUB2 configuration
-      ansible.builtin.copy:
-        src: /etc/default/grub
-        dest: "/etc/default/grub.bak_{{ ansible_date_time.iso8601 }}"
+    - name: Backup current GRUB2 config
+      copy:
+        src: /boot/grub2/grub.cfg
+        dest: /boot/grub2/grub.cfg.bak
         remote_src: yes
-      register: backup_result
-      failed_when: backup_result.failed
+      when: ansible_facts['os_family'] == "RedHat"
 
-    - name: Check current GRUB2 configuration for audit_backlog_limit
-      ansible.builtin.shell: |
-        grep -Po '\baudit_backlog_limit=\d+\b' /etc/default/grub
-      register: current_audit_backlog_limit
-      failed_when: false
-      changed_when: false
+    - name: Ensure audit=1 is present in kernel args
+      command: grubby --update-kernel=ALL --args="audit=1"
+      register: audit_flag
 
-    - name: Display current audit_backlog_limit value
+    - name: Ensure audit_backlog_limit=8192 is present
+      command: grubby --update-kernel=ALL --args="audit_backlog_limit=8192"
+      register: backlog_flag
+
+    - name: Ensure grubenv file exists (required for grub2-editenv)
+      file:
+        path: /boot/grub2/grubenv
+        state: touch
+        mode: '0644'
+
+    - name: Regenerate GRUB2 configuration
+      command: grub2-mkconfig -o /boot/grub2/grub.cfg
+      register: grub_config_result
+      failed_when: grub_config_result.rc != 0 and
+                   "'cannot rename the file' not in grub_config_result.stderr"
+
+    - name: Display manual reboot reminder
       debug:
-        msg: "Current audit_backlog_limit: {{ current_audit_backlog_limit.stdout }}"
-
-    - name: Add audit_backlog_limit to GRUB configuration if not present
-      ansible.builtin.shell: |
-        grep -q 'audit_backlog_limit' /etc/default/grub || echo 'GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX audit_backlog_limit=8192"' >> /etc/default/grub
-      when: current_audit_backlog_limit.stdout == ""
-
-    - name: Add audit_backlog_limit to GRUB_CMDLINE_LINUX if missing
-      ansible.builtin.shell: |
-        sed -i 's/GRUB_CMDLINE_LINUX="\(.*\)"/GRUB_CMDLINE_LINUX="\1 audit_backlog_limit=8192"/' /etc/default/grub
-      when: current_audit_backlog_limit.stdout != ""
-
-    - name: Rebuild GRUB2 configuration
-      ansible.builtin.shell: grub2-mkconfig -o /boot/grub2/grub.cfg
-      when: backup_result.changed == true
-
-    - name: Check if audit_backlog_limit is set correctly
-      ansible.builtin.shell: |
-        grep -Po '\baudit_backlog_limit=8192\b' /etc/default/grub
-      register: audit_backlog_check
-      failed_when: false
-      changed_when: false
-
-    - name: Display audit_backlog_limit validation result
-      debug:
-        msg: "Audit backlog limit validation: {{ audit_backlog_check.stdout }}"
-
-    - name: Reboot message
-      debug:
-        msg: "The system requires a reboot for changes to take effect. Please perform a manual reboot."
-      when: backup_result.changed == true
+        msg: |
+          Kernel parameters updated. A reboot is required to apply changes.
+          Please reboot the system manually at your convenience.
 
