@@ -1,36 +1,23 @@
 ---
-- name: Backup and Modify SSH Configuration with Timestamp
-  hosts: all
-  become: yes
+- name: Backup and configure sshd_config
+  hosts: your_target_host
+  become: yes  # Use sudo to modify system files
   tasks:
-    - name: Get current timestamp
-      shell: "date +'%Y-%m-%d_%H-%M-%S'"
-      register: current_timestamp
-
     - name: Create backup of sshd_config with timestamp
       copy:
         src: /etc/ssh/sshd_config
-        dest: "/path/to/backup/sshd_config.bak_{{ current_timestamp.stdout }}"
-        backup: yes
-      notify: Print backup message
+        dest: "/etc/ssh/sshd_config.bak_{{ ansible_date_time.iso8601_basic }}"
+        remote_src: yes  # Ensures that the file is found on the remote host
 
-    - name: Modify sshd_config file
+    - name: Modify sshd_config to disable root login (Example change)
       lineinfile:
         path: /etc/ssh/sshd_config
         regexp: '^#PermitRootLogin'
         line: 'PermitRootLogin no'
-      notify: Print modification message
+        backup: yes  # Create backup before making changes to sshd_config
 
-  handlers:
-    - name: Print backup message
-      debug:
-        msg: "Backup of sshd_config created as /path/to/backup/sshd_config.bak_{{ current_timestamp.stdout }}"
-
-    - name: Print modification message
-      debug:
-        msg: "sshd_config file modified. Please manually reboot the system for verification."
-
-    - name: Prompt for manual reboot
-      debug:
-        msg: "Please manually reboot the system for verification after completing the playbook execution."
-
+    - name: Restart SSH service to apply changes
+      service:
+        name: sshd
+        state: restarted
+        enabled: yes
