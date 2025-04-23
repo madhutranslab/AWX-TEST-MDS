@@ -1,0 +1,54 @@
+---
+- name: Configure rsyslog to send logs to a remote host
+  hosts: all
+  become: yes
+  vars_prompt:
+    - name: "remote_log_host"
+      prompt: "Please enter the IP address or FQDN of the remote log host"
+      private: no
+
+  tasks:
+    - name: Backup current rsyslog configuration files
+      copy:
+        src: "/etc/rsyslog.conf"
+        dest: "/etc/rsyslog.conf.bak_{{ ansible_date_time.iso8601 }}"
+        backup: yes
+      register: rsyslog_backup
+
+    - name: Backup any rsyslog.d config files
+      find:
+        paths: "/etc/rsyslog.d"
+        patterns: "*.conf"
+      register: rsyslog_files
+
+    - name: Backup each rsyslog.d config file
+      copy:
+        src: "{{ item.path }}"
+        dest: "{{ item.path }}.bak_{{ ansible_date_time.iso8601 }}"
+        backup: yes
+      with_items: "{{ rsyslog_files.files }}"
+
+    - name: Ensure rsyslog is configured to send logs to a remote host
+      blockinfile:
+        path: /etc/rsyslog.conf
+        block: |
+          *.* action(type="omfwd" target="{{ remote_log_host }}" port="514" protocol="tcp"
+           action.resumeRetryCount="100"
+           queue.type="LinkedList" queue.size="1000")
+      notify:
+        - Restart rsyslog
+
+    - name: Check if rsyslog.d files have the correct configuration
+      lineinfile:
+        path: "{{ item.path }}"
+        regexp: '^*.*'
+        line: "*.* action(type='omfwd' target='{{ remote_log_host }}' port='514' protocol='tcp' action.resumeRetryCount='100' queue.type='LinkedList' queue.size='1000')"
+        create: yes
+      with_items: "{{ rsyslog_files.files }}"
+
+  handlers:
+    - name: Restart rsyslog
+      systemd:
+        name: rsyslog
+        state: restarted
+        enabled: yes
