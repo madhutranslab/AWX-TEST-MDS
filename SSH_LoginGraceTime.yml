@@ -1,0 +1,40 @@
+---
+- name: Ensure SSH LoginGraceTime is set to 60
+  hosts: all
+  become: yes
+  tasks:
+    - name: Check current LoginGraceTime value
+      command: "grep -i '^LoginGraceTime' /etc/ssh/sshd_config"
+      register: login_gracetime
+      ignore_errors: yes
+
+    - name: Backup the sshd_config file with timestamp
+      copy:
+        src: /etc/ssh/sshd_config
+        dest: "/etc/ssh/sshd_config.bak_{{ ansible_date_time.iso8601_basic }}"
+        remote_src: yes
+      when: login_gracetime.rc == 0
+
+    - name: Set LoginGraceTime to 60 if not already set
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^LoginGraceTime'
+        line: 'LoginGraceTime 60'
+        state: present
+        insertafter: EOF
+      when: login_gracetime.rc != 0 or login_gracetime.stdout != 'LoginGraceTime 60'
+
+    - name: Ensure sshd is reloaded to apply changes
+      systemd:
+        name: sshd
+        state: reloaded
+      when: login_gracetime.rc != 0 or login_gracetime.stdout != 'LoginGraceTime 60'
+
+    - name: Reboot the system for verification (Manual Reboot)
+      debug:
+        msg: "Please manually reboot the system to verify the change takes effect."
+      when: login_gracetime.rc != 0 or login_gracetime.stdout != 'LoginGraceTime 60'
+
+    - name: Suggest making regular backups
+      debug:
+        msg: "Make regular backups of modified files. Example backup file: /etc/ssh/sshd_config.bak_{{ ansible_date_time.iso8601_basic }}"
