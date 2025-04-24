@@ -1,0 +1,32 @@
+---
+- name: Ensure SSH client alive settings are configured
+  hosts: all
+  become: yes
+  tasks:
+    - name: Backup the sshd_config file before modifying
+      copy:
+        src: /etc/ssh/sshd_config
+        dest: "/etc/ssh/sshd_config.bak_{{ ansible_date_time.iso8601 }}"
+        backup: yes
+
+    - name: Ensure ClientAliveInterval is set to 15
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?ClientAliveInterval'
+        line: 'ClientAliveInterval 15'
+        state: present
+        backup: yes
+
+    - name: Ensure ClientAliveCountMax is set to 3
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?ClientAliveCountMax'
+        line: 'ClientAliveCountMax 3'
+        state: present
+        backup: yes
+
+    - name: Restart SSH service to apply changes
+      systemd:
+        name: sshd
+        state: restarted
+        enabled: yes
