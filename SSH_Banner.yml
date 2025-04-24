@@ -1,0 +1,32 @@
+---
+- name: Add SSH banner and restart service with backup
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Backup sshd_config with timestamp
+      command: >
+        cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak_{{ ansible_date_time.date }}_{{ ansible_date_time.time | replace(":", "-") }}
+      register: backup_result
+
+    - name: Add correct Banner line
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        line: 'Banner /etc/issue.net'
+        insertafter: '^#Port'
+        state: present
+
+    - name: Create banner file with warning message
+      copy:
+        dest: /etc/issue.net
+        content: |
+          WARNING: Authorized access only.
+          Disconnect immediately if you are not an authorized user.
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Restart SSH service
+      service:
+        name: sshd
+        state: restarted
