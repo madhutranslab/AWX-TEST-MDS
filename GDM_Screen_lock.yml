@@ -1,0 +1,97 @@
+---
+- name: Lock GDM screen lock settings if already defined, with timestamped backups
+  hosts: all
+  become: true
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%F_%H-%M-%S') }}"
+
+  tasks:
+    - name: Check if GDM is installed
+      package_facts:
+      register: pkg_facts
+
+    - name: Set GDM installed fact
+      set_fact:
+        gdm_installed: "{{ ('gdm' in ansible_facts.packages) or ('gdm3' in ansible_facts.packages) }}"
+
+    - name: Find dconf db files with 'idle-delay'
+      find:
+        paths: /etc/dconf/db/
+        patterns: '*.d'
+        recurse: yes
+        contains: 'idle-delay'
+      register: idle_delay_files
+      when: gdm_installed
+
+    - name: Find dconf db files with 'lock-delay'
+      find:
+        paths: /etc/dconf/db/
+        patterns: '*.d'
+        recurse: yes
+        contains: 'lock-delay'
+      register: lock_delay_files
+      when: gdm_installed
+
+    - name: Backup and lock idle-delay
+      block:
+        - name: Backup idle-delay file
+          copy:
+            src: "{{ item.path }}"
+            dest: "{{ item.path }}.bak_{{ timestamp }}"
+          loop: "{{ idle_delay_files.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+        - name: Create locks directory if needed
+          file:
+            path: "{{ item.path | dirname }}/locks"
+            state: directory
+          loop: "{{ idle_delay_files.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+        - name: Write lock file for idle-delay
+          copy:
+            dest: "{{ item.path | dirname }}/locks/00-screensaver"
+            content: "/org/gnome/desktop/session/idle-delay\n"
+          loop: "{{ idle_delay_files.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+      when: idle_delay_files.matched > 0
+
+    - name: Backup and lock lock-delay
+      block:
+        - name: Backup lock-delay file
+          copy:
+            src: "{{ item.path }}"
+            dest: "{{ item.path }}.bak_{{ timestamp }}"
+          loop: "{{ lock_delay_files.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+        - name: Create locks directory if needed
+          file:
+            path: "{{ item.path | dirname }}/locks"
+            state: directory
+          loop: "{{ lock_delay_files.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+        - name: Write lock file for lock-delay
+          copy:
+            dest: "{{ item.path | dirname }}/locks/00-screensaver"
+            content: "/org/gnome/desktop/screensaver/lock-delay\n"
+          loop: "{{ lock_delay_files.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+      when: lock_delay_files.matched > 0
+
+    - name: Update dconf
+      command: dconf update
+      when: gdm_installed
+
+    - name: Reminder to manually reboot
+      debug:
+        msg: |
+           Please manually reboot the system to verify enforcement:
+             $ sudo reboot
