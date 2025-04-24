@@ -1,86 +1,45 @@
 ---
-- name: Configure GNOME screensaver settings
+- name: Configure GNOME screensaver lock settings
   hosts: all
   become: true
   vars:
-    timestamp: "{{ lookup('pipe', 'date +%F_%H-%M-%S') }}"
-    gsettings_files_dir: "/etc/dconf/db/local.d"
-    gsettings_locks_dir: "/etc/dconf/db/local.d/locks"
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    dconf_config_file: /etc/dconf/db/local.d/00-screensaver
+    dconf_lock_file: /etc/dconf/db/local.d/locks/00-screensaver
 
   tasks:
 
-    - name: Find files with idle-delay setting
-      find:
-        paths: "{{ gsettings_files_dir }}"
-        patterns: '*'
-        contains: 'idle-delay'
-        file_type: file
-      register: idle_delay_files
+    - name: Backup existing dconf config file if it exists
+      copy:
+        src: "{{ dconf_config_file }}"
+        dest: "{{ dconf_config_file }}.bak_{{ timestamp }}"
+        remote_src: true
+      when: ansible_facts['os_family'] == 'RedHat' and ansible_facts['distribution_major_version'] | int >= 7
+      ignore_errors: true
 
-    - name: Find files with lock-delay setting
-      find:
-        paths: "{{ gsettings_files_dir }}"
-        patterns: '*'
-        contains: 'lock-delay'
-        file_type: file
-      register: lock_delay_files
+    - name: Create or overwrite dconf config file for screensaver settings
+      copy:
+        dest: "{{ dconf_config_file }}"
+        content: |
+          [org/gnome/desktop/session]
+          idle-delay=uint32 300
 
-    - name: Backup and lock idle-delay
-      block:
-        - name: Backup idle-delay file
-          copy:
-            src: "{{ item.path }}"
-            dest: "{{ item.path }}.bak_{{ timestamp }}"
-          loop: "{{ idle_delay_files.files }}"
-          loop_control:
-            label: "{{ item.path }}"
+          [org/gnome/desktop/screensaver]
+          lock-delay=uint32 5
+        mode: '0644'
 
-        - name: Create locks directory if needed (idle-delay)
-          file:
-            path: "{{ item.path | dirname }}/locks"
-            state: directory
-          loop: "{{ idle_delay_files.files }}"
-          loop_control:
-            label: "{{ item.path }}"
+    - name: Create or update dconf lock file
+      blockinfile:
+        path: "{{ dconf_lock_file }}"
+        create: true
+        block: |
+          /org/gnome/desktop/session/idle-delay
+          /org/gnome/desktop/screensaver/lock-delay
+        mode: '0644'
 
-        - name: Write lock file for idle-delay
-          copy:
-            dest: "{{ item.path | dirname }}/locks/00-screensaver"
-            content: "/org/gnome/desktop/session/idle-delay\n"
-          loop: "{{ idle_delay_files.files }}"
-          loop_control:
-            label: "{{ item.path }}"
-      when: idle_delay_files.files is defined and idle_delay_files.files | length > 0
+    - name: Apply dconf settings
+      command: dconf update
 
-    - name: Backup and lock lock-delay
-      block:
-        - name: Backup lock-delay file
-          copy:
-            src: "{{ item.path }}"
-            dest: "{{ item.path }}.bak_{{ timestamp }}"
-          loop: "{{ lock_delay_files.files }}"
-          loop_control:
-            label: "{{ item.path }}"
-
-        - name: Create locks directory if needed (lock-delay)
-          file:
-            path: "{{ item.path | dirname }}/locks"
-            state: directory
-          loop: "{{ lock_delay_files.files }}"
-          loop_control:
-            label: "{{ item.path }}"
-
-        - name: Write lock file for lock-delay
-          copy:
-            dest: "{{ item.path | dirname }}/locks/00-screensaver"
-            content: "/org/gnome/desktop/screensaver/lock-delay\n"
-          loop: "{{ lock_delay_files.files }}"
-          loop_control:
-            label: "{{ item.path }}"
-      when: lock_delay_files.files is defined and lock_delay_files.files | length > 0
-
-    - name: Notify about reboot
+    - name: Reminder for manual reboot
       debug:
-        msg: |
-          All settings and locks are applied. Please reboot the system manually to apply changes.
-          Example backup files created: /etc/dconf/db/local.d/00-screensaver.bak_{{ timestamp }}
+        msg: "Please reboot the system manually to apply changes. (Manual Reboot Required)"
