@@ -1,0 +1,61 @@
+---
+- name: Ensure 'at' command is restricted to authorized users (CIS 4.1.2.1)
+  hosts: all
+  become: true
+  vars:
+    at_allow: /etc/at.allow
+    at_deny: /etc/at.deny
+    default_group: root
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+
+  tasks:
+    - name: Check if 'daemon' group exists
+      command: getent group daemon
+      register: daemon_group
+      ignore_errors: yes
+
+    - name: Set group based on daemon existence
+      set_fact:
+        at_group: "{{ 'daemon' if daemon_group.rc == 0 else default_group }}"
+
+    - name: Back up /etc/at.allow if it exists
+      copy:
+        src: "{{ at_allow }}"
+        dest: "{{ at_allow }}.bak_{{ timestamp }}"
+        remote_src: yes
+      when: ansible_facts['files'][at_allow] is defined
+
+    - name: Ensure /etc/at.allow file exists with correct permissions
+      file:
+        path: "{{ at_allow }}"
+        state: touch
+        owner: root
+        group: "{{ at_group }}"
+        mode: '0640'
+
+    - name: Stat /etc/at.deny
+      stat:
+        path: "{{ at_deny }}"
+      register: at_deny_stat
+
+    - name: Back up /etc/at.deny if it exists
+      copy:
+        src: "{{ at_deny }}"
+        dest: "{{ at_deny }}.bak_{{ timestamp }}"
+        remote_src: yes
+      when: at_deny_stat.stat.exists
+
+    - name: Ensure /etc/at.deny has correct permissions (if exists)
+      file:
+        path: "{{ at_deny }}"
+        owner: root
+        group: "{{ at_group }}"
+        mode: '0640'
+      when: at_deny_stat.stat.exists
+
+    - name: Manual Reboot Reminder
+      debug:
+        msg: |
+          Permissions have been applied successfully.
+          Please reboot the system manually to verify changes.
+         
