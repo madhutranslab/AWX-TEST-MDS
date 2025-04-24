@@ -1,0 +1,53 @@
+---
+- name: Secure SSH configuration files
+  hosts: all
+  become: true
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    sshd_config_file: /etc/ssh/sshd_config
+    sshd_config_backup: "/etc/ssh/sshd_config.bak_{{ timestamp }}"
+    sshd_config_d_dir: /etc/ssh/sshd_config.d
+
+  tasks:
+
+    - name: Backup sshd_config with timestamp
+      copy:
+        src: "{{ sshd_config_file }}"
+        dest: "{{ sshd_config_backup }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: '0640'
+
+    - name: Set permissions to 600 and ownership to root for sshd_config
+      file:
+        path: "{{ sshd_config_file }}"
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Check if /etc/ssh/sshd_config.d directory exists
+      stat:
+        path: "{{ sshd_config_d_dir }}"
+      register: sshd_config_d_check
+
+    - name: Find all config files in /etc/ssh/sshd_config.d if it exists
+      find:
+        paths: "{{ sshd_config_d_dir }}"
+        file_type: file
+      register: sshd_config_d_files
+      when: sshd_config_d_check.stat.exists
+
+    - name: Secure each .conf file in /etc/ssh/sshd_config.d
+      file:
+        path: "{{ item.path }}"
+        owner: root
+        group: root
+        mode: '0600'
+      loop: "{{ sshd_config_d_files.files }}"
+      when: sshd_config_d_check.stat.exists
+
+    - name: Notify manual reboot reminder
+      debug:
+        msg: "Changes applied. Please manually reboot the system to verify settings."
+
