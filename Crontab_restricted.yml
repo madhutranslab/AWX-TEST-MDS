@@ -1,0 +1,41 @@
+---
+- name: Ensure crontab is restricted to authorized users
+  hosts: all
+  become: true
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    cron_allow_path: /etc/cron.allow
+    cron_deny_path: /etc/cron.deny
+
+  tasks:
+    - name: Ensure /etc/cron.allow exists
+      file:
+        path: "{{ cron_allow_path }}"
+        state: touch
+        owner: root
+        group: root
+        mode: '0640'
+
+    - name: Backup /etc/cron.deny if it exists
+      copy:
+        src: "{{ cron_deny_path }}"
+        dest: "{{ cron_deny_path }}.bak_{{ timestamp }}"
+        remote_src: yes
+      when: ansible_facts['filesystem'][cron_deny_path] is defined and
+            ansible_facts['filesystem'][cron_deny_path]['mount'] is defined
+      ignore_errors: yes
+
+    - name: Set ownership and permissions for /etc/cron.deny if it exists
+      file:
+        path: "{{ cron_deny_path }}"
+        owner: root
+        group: root
+        mode: '0640'
+      when: ansible_facts['filesystem'][cron_deny_path] is defined and
+            ansible_facts['filesystem'][cron_deny_path]['mount'] is defined
+      ignore_errors: yes
+
+    - name: Display message for manual reboot
+      debug:
+        msg: "Manual reboot is recommended to verify changes. Please reboot the system."
+
