@@ -16,13 +16,17 @@
         group: root
         mode: '0640'
 
+    - name: Check if /etc/cron.deny exists
+      stat:
+        path: "{{ cron_deny_path }}"
+      register: cron_deny_stat
+
     - name: Backup /etc/cron.deny if it exists
       copy:
         src: "{{ cron_deny_path }}"
         dest: "{{ cron_deny_path }}.bak_{{ timestamp }}"
         remote_src: yes
-      when: ansible_facts['filesystem'][cron_deny_path] is defined and
-            ansible_facts['filesystem'][cron_deny_path]['mount'] is defined
+      when: cron_deny_stat.stat.exists
       ignore_errors: yes
 
     - name: Set ownership and permissions for /etc/cron.deny if it exists
@@ -31,11 +35,9 @@
         owner: root
         group: root
         mode: '0640'
-      when: ansible_facts['filesystem'][cron_deny_path] is defined and
-            ansible_facts['filesystem'][cron_deny_path]['mount'] is defined
+      when: cron_deny_stat.stat.exists
       ignore_errors: yes
 
     - name: Display message for manual reboot
       debug:
         msg: "Manual reboot is recommended to verify changes. Please reboot the system."
-
