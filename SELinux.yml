@@ -1,0 +1,86 @@
+---
+- name: Ensure SELinux is configured as per CIS benchmarks (1.5.1.3, 1.5.1.4, 1.5.1.5)
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    selinux_config: /etc/selinux/config
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    random_id: "{{ 99999 | random }}"
+    selinux_backup_filename: "selinux_config_backup_{{ timestamp }}_{{ random_id }}"
+    selinux_backup_path: "/backup/{{ selinux_backup_filename }}"
+
+  tasks:
+
+    - name: Create /backup directory if it doesn't exist
+      file:
+        path: /backup
+        state: directory
+        mode: '0755'
+
+    - name: Ensure no conflicting backup file exists (optional safety check)
+      stat:
+        path: "{{ selinux_backup_path }}"
+      register: backup_file_stat
+
+    - name: Fail if backup file already exists (highly unlikely due to random_id)
+      fail:
+        msg: "Backup file {{ selinux_backup_path }} already exists. Manual check needed."
+      when: backup_file_stat.stat.exists
+
+    - name: Backup /etc/selinux/config with timestamp and unique ID
+      copy:
+        src: "{{ selinux_config }}"
+        dest: "{{ selinux_backup_path }}"
+        remote_src: true
+      notify: "Notify SELinux backup created"
+
+    - name: Ensure SELINUX is set to enforcing in config file
+      replace:
+        path: "{{ selinux_config }}"
+        regexp: '^SELINUX=.*'
+        replace: 'SELINUX=enforcing'
+      notify: "Notify SELinux config updated"
+
+    - name: Ensure SELINUXTYPE is set to targeted
+      replace:
+        path: "{{ selinux_config }}"
+        regexp: '^SELINUXTYPE=.*'
+        replace: 'SELINUXTYPE=targeted'
+      notify: "Notify SELinux config updated"
+
+    - name: Try to set SELinux to enforcing at runtime
+      command: setenforce 1
+      register: setenforce_result
+      ignore_errors: true
+
+    - name: Get current SELinux runtime status
+      command: getenforce
+      register: selinux_status
+      ignore_errors: true
+
+    - name: Show SELinux runtime status
+      debug:
+        var: selinux_status.stdout
+      when: selinux_status.stdout is defined
+
+    - name: Fail if SELinux is not enforcing at runtime
+      fail:
+        msg: "SELinux runtime mode is not enforcing. Reboot may be required."
+      when: selinux_status.stdout is defined and selinux_status.stdout != "Enforcing"
+
+    - name: Notify user about manual reboot
+      debug:
+        msg: |
+          SELinux configuration has been updated to enforcing and targeted.
+          Backup created at {{ selinux_backup_path }}.
+          Please reboot the system manually to fully apply changes.
+
+  handlers:
+    - name: Notify SELinux backup created
+      debug:
+        msg: "SELinux config backed up to {{ selinux_backup_path }}"
+
+    - name: Notify SELinux config updated
+      debug:
+        msg: "SELinux configuration file updated to 'enforcing' and 'targeted'"
