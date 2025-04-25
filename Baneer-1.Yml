@@ -1,0 +1,109 @@
+---
+- hosts: all
+  become: yes
+  vars:
+    # Specify your site-specific banner text here. If empty, /etc/motd will be removed.
+    motd_content: |
+      WARNING: Unauthorized access to this system is prohibited.
+      Monitors all activity on this system.
+      All activity is logged and audited.
+
+    # Issue banner for local terminal login
+    issue_content: |
+      WARNING: Authorized users only. All activities may be monitored and reported.
+
+    # Issue banner for remote login
+    issue_net_content: |
+      WARNING: Authorized users only. All activities may be monitored and reported.
+
+  tasks:
+    # /etc/motd Configuration
+    - name: "Backup existing /etc/motd with timestamp"
+      ansible.builtin.shell: |
+        if [ -f /etc/motd ]; then
+          cp /etc/motd /etc/motd.bak_$(date +"%Y-%m-%d_%H-%M-%S")
+        fi
+      args:
+        warn: false
+      when: ansible_facts['os_family'] != ''
+      tags:
+        - backup
+
+    - name: "Configure /etc/motd with site policy banner"
+      ansible.builtin.copy:
+        content: "{{ motd_content }}"
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: '0644'
+      when: motd_content | length > 0
+      tags:
+        - configure
+
+    - name: "Remove /etc/motd if banner not used"
+      ansible.builtin.file:
+        path: /etc/motd
+        state: absent
+      when: motd_content | length == 0
+      tags:
+        - remove
+
+    # /etc/issue Configuration
+    - name: "Backup existing /etc/issue with timestamp"
+      ansible.builtin.shell: |
+        if [ -f /etc/issue ]; then
+          cp /etc/issue /etc/issue.bak_$(date +"%Y-%m-%d_%H-%M-%S")
+        fi
+      args:
+        warn: false
+      tags: [backup, issue]
+
+    - name: "Configure /etc/issue with site policy banner"
+      ansible.builtin.copy:
+        content: "{{ issue_content }}"
+        dest: /etc/issue
+        owner: root
+        group: root
+        mode: '0644'
+      when: issue_content | length > 0
+      tags: [configure, issue]
+
+    - name: "Remove /etc/issue if banner not used"
+      ansible.builtin.file:
+        path: /etc/issue
+        state: absent
+      when: issue_content | length == 0
+      tags: [remove, issue]
+
+    # /etc/issue.net Configuration
+    - name: "Backup existing /etc/issue.net with timestamp"
+      ansible.builtin.shell: |
+        if [ -f /etc/issue.net ]; then
+          cp /etc/issue.net /etc/issue.net.bak_$(date +"%Y-%m-%d_%H-%M-%S")
+        fi
+      args:
+        warn: false
+      tags: [backup, issue_net]
+
+    - name: "Configure /etc/issue.net with site policy banner"
+      ansible.builtin.copy:
+        content: "{{ issue_net_content }}"
+        dest: /etc/issue.net
+        owner: root
+        group: root
+        mode: '0644'
+      when: issue_net_content | length > 0
+      tags: [configure, issue_net]
+
+    - name: "Remove /etc/issue.net if banner not used"
+      ansible.builtin.file:
+        path: /etc/issue.net
+        state: absent
+      when: issue_net_content | length == 0
+      tags: [remove, issue_net]
+
+    # Reminder for Manual Reboot
+    - name: "Reminder - Manual reboot required to verify changes"
+      ansible.builtin.debug:
+        msg: "Manual reboot is required after script execution to verify changes."
+      tags: [notice]
