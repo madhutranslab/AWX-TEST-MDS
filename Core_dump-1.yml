@@ -1,0 +1,68 @@
+---
+- name: Ensure core dump backtraces and storage are disabled
+  hosts: all
+  become: yes
+  tasks:
+    - name: Ensure backup directory exists for core dump configuration
+      file:
+        path: /etc/systemd/coredump.conf.d
+        state: directory
+        mode: '0755'
+
+    - name: Backup existing coredump config if present
+      shell: |
+        set -e
+        FILE="/etc/systemd/coredump.conf.d/custom.conf"
+        if [ -f "$FILE" ]; then
+          timestamp=$(date +%F_%T)
+          cp "$FILE" "${FILE}.bak_$timestamp"
+        fi
+      args:
+        executable: /bin/bash
+      register: backup_result
+      changed_when: backup_result.rc == 0
+      ignore_errors: true
+
+    - name: Configure ProcessSizeMax to 0 (Disable core dump backtraces)
+      copy:
+        dest: /etc/systemd/coredump.conf.d/custom.conf
+        content: |
+          [Coredump]
+          ProcessSizeMax=0
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Check current ProcessSizeMax setting
+      command: grep -i ProcessSizeMax /etc/systemd/coredump.conf.d/custom.conf
+      register: current_setting
+      changed_when: false
+
+    - name: Show current ProcessSizeMax value
+      debug:
+        msg: "Current ProcessSizeMax value: {{ current_setting.stdout }}"
+
+    - name: Configure Storage=none (Disable core dump storage)
+      blockinfile:
+        path: /etc/systemd/coredump.conf.d/custom.conf
+        block: |
+          [Coredump]
+          Storage=none
+        marker: "# {mark} Ansible managed block - core dump storage"
+        create: yes
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Check current Storage setting
+      command: grep -i Storage /etc/systemd/coredump.conf.d/custom.conf
+      register: storage_setting
+      changed_when: false
+
+    - name: Show current Storage value
+      debug:
+        msg: "Current Storage setting: {{ storage_setting.stdout }}"
+
+    - name: Reminder to reboot system for changes to take effect
+      debug:
+        msg: "Please reboot the system manually to apply core dump configuration changes."
