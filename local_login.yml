@@ -4,7 +4,7 @@
   vars:
     # Issue banner for local terminal login
     issue_content: |
-      WARNING: Authorized users only. All activities may be monitored and reported by Company XYZ.
+      WARNING: Authorized users only. All activities may be monitored and reported.
 
   tasks:
     - name: "Backup existing /etc/issue with timestamp"
