@@ -12,61 +12,54 @@
 
   tasks:
 
-    - name: Process each module
-      block:
+    - name: Set timestamp once
+      set_fact:
+        timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
 
-        - name: Set variables for each module
-          set_fact:
-            module_name: "{{ item }}"
-            modprobe_conf: "/etc/modprobe.d/{{ item }}.conf"
-            timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
-            backup_path: "/etc/modprobe.d/{{ item }}.conf.bak_{{ timestamp }}"
-          loop: "{{ modules_to_disable }}"
-          loop_control:
-            loop_var: item
-          register: module_facts
+    - name: Build module facts list
+      set_fact:
+        module_facts: "{{ module_facts | default([]) + [ {
+          'module_name': item,
+          'modprobe_conf': '/etc/modprobe.d/' + item + '.conf',
+          'backup_path': '/etc/modprobe.d/' + item + '.conf.bak_' + timestamp
+        } ] }}"
+      loop: "{{ modules_to_disable }}"
 
-        - name: Backup existing modprobe config if present
-          copy:
-            src: "{{ item.module_name.modprobe_conf }}"
-            dest: "{{ item.module_name.backup_path }}"
-            remote_src: yes
-          when: >
-            item.module_name is defined and
-            (lookup('ansible.builtin.stat', item.module_name.modprobe_conf, get_attributes=False).stat.exists)
-          ignore_errors: yes
-          loop: "{{ module_facts.results }}"
-          loop_control:
-            loop_var: item
+    - name: Backup existing modprobe config if present
+      copy:
+        src: "{{ item.modprobe_conf }}"
+        dest: "{{ item.backup_path }}"
+        remote_src: yes
+      when: lookup('ansible.builtin.stat', item.modprobe_conf, get_attributes=False).stat.exists
+      ignore_errors: yes
+      loop: "{{ module_facts }}"
 
-        - name: Create modprobe config to disable the module
-          copy:
-            dest: "{{ item.module_name.modprobe_conf }}"
-            content: |
-              install {{ item.module_name.module_name }} /bin/false
-              blacklist {{ item.module_name.module_name }}
-            owner: root
-            group: root
-            mode: '0644'
-          loop: "{{ module_facts.results }}"
-          loop_control:
-            loop_var: item
+    - name: Create modprobe config to disable the module
+      copy:
+        dest: "{{ item.modprobe_conf }}"
+        content: |
+          install {{ item.module_name }} /bin/false
+          blacklist {{ item.module_name }}
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ module_facts }}"
 
-        - name: Unload kernel module if loaded
-          shell: |
-            set -e
-            if lsmod | grep -w {{ item.module_name.module_name }}; then
-              modprobe -r {{ item.module_name.module_name }}
-            else
-              echo "Module not loaded"
-            fi
-          args:
-            executable: /bin/bash
-          register: unload_result
-          changed_when: "'Module not loaded' not in unload_result.stdout"
-          loop: "{{ module_facts.results }}"
-          loop_control:
-            loop_var: item
+    - name: Unload kernel module if loaded
+      shell: |
+        set -e
+        if lsmod | grep -w {{ item.module_name }}; then
+          modprobe -r {{ item.module_name }}
+        else
+          echo "Module not loaded"
+        fi
+      args:
+        executable: /bin/bash
+      register: unload_result
+      changed_when: "'Module not loaded' not in unload_result.stdout"
+      loop: "{{ module_facts }}"
+      loop_control:
+        label: "{{ item.module_name }}"
 
     - name: Notify for reboot
       debug:
