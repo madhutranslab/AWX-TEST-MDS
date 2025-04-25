@@ -25,14 +25,24 @@
         } ] }}"
       loop: "{{ modules_to_disable }}"
 
+    - name: Check if modprobe config exists
+      stat:
+        path: "{{ item.modprobe_conf }}"
+      register: modprobe_stat
+      loop: "{{ module_facts }}"
+      loop_control:
+        label: "{{ item.module_name }}"
+
     - name: Backup existing modprobe config if present
       copy:
-        src: "{{ item.modprobe_conf }}"
-        dest: "{{ item.backup_path }}"
+        src: "{{ item.0.modprobe_conf }}"
+        dest: "{{ item.0.backup_path }}"
         remote_src: yes
-      when: lookup('ansible.builtin.stat', item.modprobe_conf, get_attributes=False).stat.exists
+      when: item.1.stat.exists
       ignore_errors: yes
-      loop: "{{ module_facts }}"
+      loop: "{{ module_facts | zip(modprobe_stat.results) | list }}"
+      loop_control:
+        label: "{{ item.0.module_name }}"
 
     - name: Create modprobe config to disable the module
       copy:
@@ -44,6 +54,8 @@
         group: root
         mode: '0644'
       loop: "{{ module_facts }}"
+      loop_control:
+        label: "{{ item.module_name }}"
 
     - name: Unload kernel module if loaded
       shell: |
