@@ -4,7 +4,7 @@
   vars:
     # Issue banner for remote login
     issue_net_content: |
-      WARNING: Authorized users only. All activities may be monitored and reported by Company XYZ.
+      WARNING: Authorized users only. All activities may be monitored and reported.
 
   tasks:
     - name: "Backup existing /etc/issue.net with timestamp"
