@@ -1,57 +1,58 @@
-- name: Fix auditd log_group and permissions
+---
+- name: Ensure only authorized groups are assigned ownership of audit log files (CIS 5.2.4.4)
   hosts: all
-  become: yes
+  become: true
+  vars:
+    audit_conf_file: /etc/audit/auditd.conf
+    log_group: adm
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
 
   tasks:
-    # Backup configuration file with timestamp
+
     - name: Backup auditd.conf with timestamp
       copy:
-        src: /etc/audit/auditd.conf
-        dest: "/etc/audit/auditd.conf.bak_{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+        src: "{{ audit_conf_file }}"
+        dest: "{{ audit_conf_file }}.bak_{{ timestamp }}"
         remote_src: yes
 
-    # Ensure the adm group exists
-    - name: Ensure 'adm' group exists
-      group:
-        name: adm
+    - name: Set log_group to adm in auditd.conf
+      lineinfile:
+        path: "{{ audit_conf_file }}"
+        regexp: '^(\s*)log_group\s*='
+        line: 'log_group = {{ log_group }}'
         state: present
+        backrefs: yes
+        create: no
 
-    # Modify log_group setting in auditd.conf
-    - name: Set correct 'log_group = adm' in auditd.conf
-      replace:
-        path: /etc/audit/auditd.conf
-        regexp: '^(#?\s*log_group\s*=\s*).*'
-        replace: 'log_group = adm'
+    - name: Get log file directory from auditd.conf
+      shell: |
+        awk -F '=' '/^\s*log_file\s*=/ {print $2}' "{{ audit_conf_file }}" | xargs dirname
+      register: audit_log_dir
+      changed_when: false
 
-    # Ensure /var/log/audit directory exists
-    - name: Ensure /var/log/audit exists
+    - name: Change group ownership of audit log files to adm (or root)
+      shell: |
+        find {{ audit_log_dir.stdout }} -type f ! -group adm ! -group root -exec chgrp adm {} +
+      args:
+        warn: false
+
+    - name: Change group of /var/log/audit to adm
       file:
         path: /var/log/audit
-        state: directory
-        owner: root
         group: adm
-        mode: '0750'
+        recurse: yes
+        state: directory
 
-    # Set file group ownership for audit logs
-    - name: Ensure audit log files are owned by adm group
-      shell: |
-        find /var/log/audit/ -type f ! -group adm ! -group root -exec chgrp adm {} +
-      args:
-        executable: /bin/bash
-
-    # Restart the auditd service and handle potential failure
     - name: Restart auditd to apply changes
       systemd:
         name: auditd
         state: restarted
         enabled: yes
       register: result
-      failed_when: result.rc != 0
+      until: result is succeeded
       retries: 3
       delay: 5
-      until: result.rc == 0
 
-  handlers:
-    - name: Manual Reboot Reminder
+    - name: Reminder to manually reboot system for verification
       debug:
-        msg: "Please manually reboot the system to complete the verification."
+        msg: "Manual reboot recommended to verify auditd settings. Backup saved as {{ audit_conf_file }}.bak_{{ timestamp }}"
