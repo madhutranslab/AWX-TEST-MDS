@@ -43,16 +43,40 @@
         recurse: yes
         state: directory
 
-    - name: Restart auditd to apply changes
-      systemd:
-        name: auditd
-        state: restarted
-        enabled: yes
-      register: result
-      until: result is succeeded
-      retries: 3
-      delay: 5
+    - name: Try restarting auditd
+      block:
+        - name: Restart auditd
+          systemd:
+            name: auditd
+            state: restarted
+            enabled: yes
+          register: restart_result
+          failed_when: restart_result.failed
+          ignore_errors: yes
 
-    - name: Reminder to manually reboot system for verification
-      debug:
-        msg: "Manual reboot recommended to verify auditd settings. Backup saved as {{ audit_conf_file }}.bak_{{ timestamp }}"
+        - name: Debug auditd restart failure - systemctl status
+          command: systemctl status auditd.service
+          register: auditd_status
+          when: restart_result.failed
+          ignore_errors: yes
+
+        - name: Show auditd service status output
+          debug:
+            var: auditd_status.stdout_lines
+          when: restart_result.failed
+
+        - name: Debug auditd restart failure - journalctl logs
+          command: journalctl -xe --no-pager -u auditd
+          register: auditd_logs
+          when: restart_result.failed
+          ignore_errors: yes
+
+        - name: Show auditd journal logs
+          debug:
+            var: auditd_logs.stdout_lines
+          when: restart_result.failed
+
+        - name: Fail if auditd still didn't restart
+          fail:
+            msg: "auditd failed to restart. Please check above debug output."
+          when: restart_result.failed
