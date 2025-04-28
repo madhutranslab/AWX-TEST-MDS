@@ -1,0 +1,105 @@
+---
+- name: CIS 5.2.4.x - Audit Configuration and Tool Hardening
+  hosts: all
+  become: yes
+  gather_facts: false
+ 
+  vars:
+    audit_tools:
+      - /sbin/auditctl
+      - /sbin/aureport
+      - /sbin/ausearch
+      - /sbin/autrace
+      - /sbin/auditd
+      - /sbin/augenrules
+ 
+    audit_conf_files_cmd: "find /etc/audit/ -type f \\( -name '*.conf' -o -name '*.rules' \\)"
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+    backup_dir: "/var/backups/cis-5.2.4"
+ 
+  tasks:
+ 
+    - name: Ensure backup directory exists
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+ 
+    ########################################################################
+    # 5.2.4.4 - Ensure audit log files are owned by authorized group
+    ########################################################################
+    - name: "5.2.4.4 - Set audit log file group ownership to 'adm'"
+      shell: |
+        log_group=$(awk -F '=' '/^log_group/ {print $2}' /etc/audit/auditd.conf | xargs)
+        [[ -z "$log_group" ]] && log_group="adm"
+        find $(awk -F '=' '/^log_file/ {print $2}' /etc/audit/auditd.conf | xargs dirname) -type f -exec chgrp "$log_group" {} +
+      register: set_log_group
+      changed_when: "'changed' in set_log_group.stdout"
+ 
+    ########################################################################
+    # 5.2.4.5 - Ensure audit configuration files are 640 or more restrictive
+    ########################################################################
+    - name: "5.2.4.5 - Set permissions of audit config files to 0640"
+      shell: |
+        {{ audit_conf_files_cmd }} -exec chmod u-x,g-wx,o-rwx {} +
+      register: restrict_audit_conf_perms
+      changed_when: true
+ 
+    ########################################################################
+    # 5.2.4.6 - Ensure audit configuration files are owned by root
+    ########################################################################
+    - name: "5.2.4.6 - Set ownership of audit config files to root"
+      shell: |
+        {{ audit_conf_files_cmd }} ! -user root -exec chown root {} +
+      register: set_owner_root
+      changed_when: true
+ 
+    ########################################################################
+    # 5.2.4.7 - Ensure audit configuration files belong to group root
+    ########################################################################
+    - name: "5.2.4.7 - Set group of audit config files to root"
+      shell: |
+        {{ audit_conf_files_cmd }} ! -group root -exec chgrp root {} +
+      register: set_group_root
+      changed_when: true
+ 
+    ########################################################################
+    # 5.2.4.8 - Ensure audit tools are 755 or more restrictive
+    ########################################################################
+    - name: "5.2.4.8 - Remove write permissions from group/others on audit tools"
+      shell: |
+        chmod go-w {{ audit_tools | join(' ') }}
+      register: audit_tools_perm
+      changed_when: true
+      ignore_errors: true  # In case some tools don't exist on this system
+ 
+    ########################################################################
+    # 5.2.4.9 - Ensure audit tools are owned by root
+    ########################################################################
+    - name: "5.2.4.9 - Ensure audit tools are owned by root"
+      shell: |
+        chown root {{ audit_tools | join(' ') }}
+      register: audit_tools_ownership
+      changed_when: true
+      ignore_errors: true
+ 
+    ########################################################################
+    # Verification Step for All
+    ########################################################################
+    - name: "Verify audit config file ownership & permissions"
+      shell: |
+        {{ audit_conf_files_cmd }} -exec stat -c "%n %U %G %a" {} +
+      register: audit_conf_verify
+ 
+    - name: "Print audit config verification results"
+      debug:
+        var: audit_conf_verify.stdout_lines
+ 
+    - name: "Verify audit tool ownership and permissions"
+      shell: |
+        for f in {{ audit_tools | join(' ') }}; do [ -e "$f" ] && stat -c "%n %U %a" $f; done
+      register: audit_tool_verify
+ 
+    - name: "Print audit tool verification results"
+      debug:
+        var: audit_tool_verify.stdout_lines
