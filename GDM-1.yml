@@ -1,0 +1,185 @@
+---
+- name: Manage GDM and GNOME settings
+  hosts: all
+  become: yes
+  vars:
+    gdm_profile_name: gdm
+    banner_message: |
+      Authorized users only. All activity may be monitored and reported.
+    dconf_profile_dir: "/etc/dconf/profile"
+    dconf_db_dir: "/etc/dconf/db/{{ gdm_profile_name }}.d"
+    keyfile: "{{ dconf_db_dir }}/01-banner-message"
+    dconf_dir: /etc/dconf/db
+    dconf_profile: local
+    screensaver_file: 00-screensaver
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+
+  tasks:
+    # ---- GDM Handling ----
+
+    - name: Check if GDM is installed
+      ansible.builtin.shell: rpm -q gdm
+      register: gdm_installed
+      ignore_errors: true
+      changed_when: false
+
+    - name: Backup GDM config if exists
+      ansible.builtin.shell: |
+        mkdir -p /root/backup-gdm
+        cp -r /etc/gdm /root/backup-gdm/gdm_backup_$(date +"%Y-%m-%d_%H-%M-%S")
+      when: gdm_installed.rc == 0 and ansible_facts['distribution'] == 'RedHat'
+      ignore_errors: true
+
+    - name: Remove GDM package if installed
+      ansible.builtin.yum:
+        name: gdm
+        state: absent
+      when: gdm_installed.rc == 0
+
+    - name: Reminder - Manual reboot required after GDM removal
+      ansible.builtin.debug:
+        msg: |
+          After executing the script, ensure to reboot the system for verification. (Manual Reboot)
+          Make regular backups of any files you modify.
+      when: gdm_installed.rc == 0
+
+    # ---- GDM Banner Configuration ----
+
+    - name: Backup GDM dconf files if exist
+      ansible.builtin.shell: |
+        mkdir -p /root/backup-gdm
+        if [ -f "{{ dconf_profile_dir }}/{{ gdm_profile_name }}" ]; then
+          cp "{{ dconf_profile_dir }}/{{ gdm_profile_name }}" "/root/backup-gdm/{{ gdm_profile_name }}.profile_${timestamp}.bak"
+        fi
+        if [ -d "{{ dconf_db_dir }}" ]; then
+          cp -r "{{ dconf_db_dir }}" "/root/backup-gdm/{{ gdm_profile_name }}.d_${timestamp}.bak"
+        fi
+      when: gdm_installed.rc == 0
+      args:
+        warn: false
+
+    - name: Ensure dconf profile for GDM exists
+      ansible.builtin.copy:
+        dest: "{{ dconf_profile_dir }}/{{ gdm_profile_name }}"
+        content: |
+          user-db:user
+          system-db:{{ gdm_profile_name }}
+          file-db:/usr/share/{{ gdm_profile_name }}/greeter-dconf-defaults
+      when: gdm_installed.rc == 0
+
+    - name: Ensure dconf database directory exists
+      ansible.builtin.file:
+        path: "{{ dconf_db_dir }}"
+        state: directory
+      when: gdm_installed.rc == 0
+
+    - name: Configure GDM banner-message-enable
+      ansible.builtin.blockinfile:
+        path: "{{ keyfile }}"
+        create: yes
+        block: |
+          [org/gnome/login-screen]
+          banner-message-enable=true
+        marker: ""
+      when: gdm_installed.rc == 0 and banner_message | length > 0
+
+    - name: Configure GDM banner-message-text
+      ansible.builtin.blockinfile:
+        path: "{{ keyfile }}"
+        insertafter: '^banner-message-enable=true'
+        block: "banner-message-text='{{ banner_message }}'"
+        marker: ""
+      when: gdm_installed.rc == 0 and banner_message | length > 0
+
+    - name: Ensure disable-user-list is set to true in GDM
+      ansible.builtin.blockinfile:
+        path: "{{ keyfile }}"
+        insertafter: '^banner-message-text='
+        block: "disable-user-list=true"
+        marker: ""
+      when: gdm_installed.rc == 0
+
+    - name: Remove GDM banner settings if no banner message provided
+      ansible.builtin.file:
+        path: "{{ keyfile }}"
+        state: absent
+      when: gdm_installed.rc == 0 and banner_message | length == 0
+
+    - name: Update dconf database after GDM changes
+      ansible.builtin.command: dconf update
+      when: gdm_installed.rc == 0
+
+    - name: Manual reboot reminder after GDM banner setup
+      ansible.builtin.debug:
+        msg: |
+          After running this playbook, reboot the system to apply GDM banner changes and verify.
+      when: gdm_installed.rc == 0
+
+    - name: Manual general reboot reminder
+      ansible.builtin.debug:
+        msg: |
+          Make regular backups of any files you modify.
+          After executing the script, ensure to reboot the system for verification (Manual Reboot).
+
+    # ---- GNOME Screensaver and Lock Settings ----
+
+    - name: Ensure dconf directories exist for screensaver
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ dconf_dir }}/{{ dconf_profile }}.d"
+        - "{{ dconf_dir }}/{{ dconf_profile }}.d/locks"
+
+    - name: Stat the screensaver config file
+      ansible.builtin.stat:
+        path: "{{ dconf_dir }}/{{ dconf_profile }}.d/{{ screensaver_file }}"
+      register: screensaver_file_stat
+
+    - name: Backup existing screensaver config if present
+      ansible.builtin.copy:
+        src: "{{ dconf_dir }}/{{ dconf_profile }}.d/{{ screensaver_file }}"
+        dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/{{ screensaver_file }}.bak_{{ timestamp }}"
+        remote_src: yes
+      when: screensaver_file_stat.stat.exists
+
+    - name: Disable screensaver and screen lock settings
+      ansible.builtin.copy:
+        dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/{{ screensaver_file }}"
+        content: |
+          [org/gnome/desktop/session]
+          idle-delay=uint32 0
+
+          [org/gnome/desktop/screensaver]
+          lock-enabled=false
+          idle-activation-enabled=false
+
+    - name: Stat the screensaver lock file
+      ansible.builtin.stat:
+        path: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks/{{ screensaver_file }}"
+      register: screensaver_lock_stat
+
+    - name: Backup existing screensaver lock file if present
+      ansible.builtin.copy:
+        src: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks/{{ screensaver_file }}"
+        dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks/{{ screensaver_file }}.bak_{{ timestamp }}"
+        remote_src: yes
+      when: screensaver_lock_stat.stat.exists
+
+    - name: Lock down the screensaver settings
+      ansible.builtin.copy:
+        dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks/{{ screensaver_file }}"
+        content: |
+          /org/gnome/desktop/session/idle-delay
+          /org/gnome/desktop/screensaver/lock-enabled
+          /org/gnome/desktop/screensaver/idle-activation-enabled
+
+    - name: Update dconf database after screensaver changes
+      ansible.builtin.command: dconf update
+
+    - name: Reminder - Manual reboot required after screensaver changes
+      ansible.builtin.debug:
+        msg: |
+          Screensaver and lock settings have been hardened.
+          Please reboot the system manually...
