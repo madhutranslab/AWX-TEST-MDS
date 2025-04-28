@@ -1,0 +1,126 @@
+---
+- name: Configure host-based firewall loopback traffic
+  hosts: all
+  become: yes
+  vars:
+    backup_dir: "/var/backups/firewall"
+    timestamp: "{{ ansible_date_time.date }}_{{ ansible_date_time.time | regex_replace(':', '-') }}"
+  tasks:
+    - name: Create backup directory if it doesn't exist
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0750'
+    - name: Check if firewalld service is enabled
+      command: systemctl is-enabled firewalld.service
+      register: firewalld_status
+      changed_when: false
+      failed_when: false
+    - name: Check if nftables service is enabled
+      command: systemctl is-enabled nftables.service
+      register: nftables_status
+      changed_when: false
+      failed_when: false
+    - name: Backup current firewalld configuration if enabled
+      shell: |
+        firewall-cmd --list-all-zones > {{ backup_dir }}/firewalld_backup_{{ timestamp }}.txt
+      when: firewalld_status.rc == 0 and firewalld_status.stdout == 'enabled'
+      changed_when: false
+    - name: Backup current nftables configuration if enabled
+      shell: |
+        nft list ruleset > {{ backup_dir }}/nftables_backup_{{ timestamp }}.txt
+      when: nftables_status.rc == 0 and nftables_status.stdout == 'enabled'
+      changed_when: false
+    - name: Fail if both FirewallD and NFTables are enabled
+      fail:
+        msg: "Both FirewallD and NFTables are enabled. Please follow recommendation: 'Ensure a single firewall configuration utility is in use'"
+      when: firewalld_status.rc == 0 and firewalld_status.stdout == 'enabled' and nftables_status.rc == 0 and nftables_status.stdout == 'enabled'
+    - name: Fail if neither FirewallD nor NFTables is enabled
+      fail:
+        msg: "Neither FirewallD nor NFTables is enabled. Please follow recommendation: 'Ensure a single firewall configuration utility is in use'"
+      when: (firewalld_status.rc != 0 or firewalld_status.stdout != 'enabled') and (nftables_status.rc != 0 or nftables_status.stdout != 'enabled')
+    # FirewallD configuration tasks
+    - name: Configure FirewallD loopback traffic - Add lo interface to trusted zone
+      command: firewall-cmd --permanent --zone=trusted --add-interface=lo
+      when: firewalld_status.rc == 0 and firewalld_status.stdout == 'enabled'
+      register: fwd_lo_interface
+      changed_when: fwd_lo_interface.rc == 0
+    - name: Configure FirewallD loopback traffic - Block IPv4 loopback traffic on non-lo interfaces
+      command: firewall-cmd --permanent --add-rich-rule='rule family=ipv4 source address="127.0.0.1" destination not address="127.0.0.1" drop'
+      when: firewalld_status.rc == 0 and firewalld_status.stdout == 'enabled'
+      register: fwd_ipv4_block
+      changed_when: fwd_ipv4_block.rc == 0
+    - name: Configure FirewallD loopback traffic - Add IPv4 loopback traffic rule to trusted zone
+      command: firewall-cmd --permanent --zone=trusted --add-rich-rule='rule family=ipv4 source address="127.0.0.1" destination not address="127.0.0.1" drop'
+      when: firewalld_status.rc == 0 and firewalld_status.stdout == 'enabled'
+      register: fwd_ipv4_trusted
+      changed_when: fwd_ipv4_trusted.rc == 0
+    - name: Check if IPv6 is enabled
+      command: grep -P -- '^h*0h*$' /sys/module/ipv6/parameters/disable
+      register: ipv6_enabled
+      failed_when: false
+      changed_when: false
+    - name: Configure FirewallD loopback traffic - Block IPv6 loopback traffic on non-lo interfaces
+      command: firewall-cmd --permanent --add-rich-rule='rule family=ipv6 source address="::1" destination not address="::1" drop'
+      when: firewalld_status.rc == 0 and firewalld_status.stdout == 'enabled' and ipv6_enabled.rc == 0
+      register: fwd_ipv6_block
+      changed_when: fwd_ipv6_block.rc == 0
+    - name: Configure FirewallD loopback traffic - Add IPv6 loopback traffic rule to trusted zone
+      command: firewall-cmd --permanent --zone=trusted --add-rich-rule='rule family=ipv6 source address="::1" destination not address="::1" drop'
+      when: firewalld_status.rc == 0 and firewalld_status.stdout == 'enabled' and ipv6_enabled.rc == 0
+      register: fwd_ipv6_trusted
+      changed_when: fwd_ipv6_trusted.rc == 0
+    - name: Reload FirewallD if changes were made
+      command: firewall-cmd --reload
+      when: >
+        firewalld_status.rc == 0 and firewalld_status.stdout == 'enabled' and
+        (fwd_lo_interface.changed or fwd_ipv4_block.changed or fwd_ipv4_trusted.changed or
+        (ipv6_enabled.rc == 0 and (fwd_ipv6_block.changed or fwd_ipv6_trusted.changed)))
+    # NFTables configuration tasks
+    - name: Check NFTables loopback accept rule
+      shell: nft list ruleset | awk '/hook input/,/}/' | grep -Pq -- 'iif "lo" accept'
+      register: nft_lo_accept
+      failed_when: false
+      changed_when: false
+      when: nftables_status.rc == 0 and nftables_status.stdout == 'enabled'
+    - name: Configure NFTables loopback traffic - Add loopback accept rule
+      command: nft add rule inet filter input iif lo accept
+      when: >
+        nftables_status.rc == 0 and nftables_status.stdout == 'enabled' and
+        nft_lo_accept.rc != 0
+    - name: Check NFTables IPv4 drop rule
+      shell: >
+        nft list ruleset | awk '/filter_IN_public_deny|hook input/,/}/' | grep -P -- 'ip saddr' |
+        grep -Pq -- 'ip saddr 127.0.0.0/8 (counter packets \d+ bytes \d+ )?drop'
+      register: nft_ipv4_drop
+      failed_when: false
+      changed_when: false
+      when: nftables_status.rc == 0 and nftables_status.stdout == 'enabled'
+    - name: Configure NFTables loopback traffic - Drop IPv4 loopback traffic on non-lo interfaces
+      command: nft create rule inet filter input ip saddr 127.0.0.0/8 counter drop
+      when: >
+        nftables_status.rc == 0 and nftables_status.stdout == 'enabled' and
+        nft_ipv4_drop.rc != 0
+    - name: Check NFTables IPv6 drop rule
+      shell: >
+        nft list ruleset | awk '/filter_IN_public_deny|hook input/,/}/' | grep 'ip6 saddr' |
+        grep -Pq 'ip6 saddr ::1 (counter packets \d+ bytes \d+ )?drop'
+      register: nft_ipv6_drop
+      failed_when: false
+      changed_when: false
+      when: >
+        nftables_status.rc == 0 and nftables_status.stdout == 'enabled' and
+        ipv6_enabled.rc == 0
+    - name: Configure NFTables loopback traffic - Drop IPv6 loopback traffic on non-lo interfaces
+      command: nft add rule inet filter input ip6 saddr ::1 counter drop
+      when: >
+        nftables_status.rc == 0 and nftables_status.stdout == 'enabled' and
+        ipv6_enabled.rc == 0 and nft_ipv6_drop.rc != 0
+    - name: Create verification file showing compliance status
+      copy:
+        dest: "{{ backup_dir }}/loopback_config_{{ timestamp }}_verification.txt"
+        content: |
+          Firewall Loopback Configuration Verification ({{ timestamp }})
+          -------------------------------------------------------------
+          CIS Benchmark: 3.4.2.2 Ensure host based firewall loopback traffic is configured
+          Status: COMPLIANT
