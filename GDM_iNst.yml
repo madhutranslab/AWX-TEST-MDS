@@ -1,0 +1,39 @@
+---
+- name: Remove GNOME Display Manager (GDM) for security hardening
+  hosts: all
+  become: yes
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}" 
+
+  tasks:
+    - name: Check if GDM is installed
+      shell: rpm -q gdm
+      register: gdm_installed
+      ignore_errors: true
+
+    - name: Inform about the impact of removing GDM
+      shell: echo "The GNOME Display Manager (GDM) will be removed. This will disable the graphical user interface (GUI) login and reduce the attack surface of the system. Ensure that a console login method is available after the removal."
+
+    - name: Backup existing sshd_config before modifying
+      shell: |
+        cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak_{{ timestamp }}
+      when: gdm_installed.rc == 0
+
+    - name: Remove GDM package if installed
+      shell: dnf remove -y gdm
+      when: gdm_installed.rc == 0
+
+    - name: Ensure GDM package is removed
+      shell: rpm -q gdm
+      register: gdm_check
+      changed_when: false
+
+    - name: Display success message
+      shell: echo "GDM has been successfully removed from the system."
+      when: gdm_check.rc != 0
+
+    - name: Reminder for manual reboot
+      shell: echo "After removing GDM, please manually reboot the system to complete the changes. Make sure to test the system functionality after reboot."
+
+    - name: Reminder to back up files
+      shell: echo "Make regular backups of any files you modify. For example, sshd_config.bak_{{ timestamp }}."
