@@ -1,0 +1,63 @@
+---
+- name: Ensure system warns when audit logs are low on space
+  hosts: all
+  become: true
+  tasks:
+ 
+    - name: Ensure /etc/audit directory exists
+      file:
+        path: /etc/audit
+        state: directory
+        mode: '0755'
+ 
+    - name: Ensure /etc/audit/auditd.conf exists
+      copy:
+        dest: /etc/audit/auditd.conf
+        content: |
+          log_file = /var/log/audit/audit.log
+          log_format = RAW
+          flush = INCREMENTAL
+          freq = 50
+          max_log_file = 8
+          num_logs = 5
+          priority_boost = 4
+          name_format = NONE
+          space_left = 75
+          space_left_action = email
+          action_mail_acct = root
+          admin_space_left = 50
+          admin_space_left_action = single
+          disk_full_action = halt
+          disk_error_action = halt
+        force: no
+      when: not lookup('ansible.builtin.file', '/etc/audit/auditd.conf', errors='ignore')
+ 
+    - name: Ensure space_left_action is set correctly
+      lineinfile:
+        path: /etc/audit/auditd.conf
+        regexp: '^space_left_action\s*='
+        line: 'space_left_action = email'
+        create: yes
+        backup: yes
+ 
+    - name: Ensure admin_space_left_action is set correctly
+      lineinfile:
+        path: /etc/audit/auditd.conf
+        regexp: '^admin_space_left_action\s*='
+        line: 'admin_space_left_action = single'
+        create: yes
+        backup: yes
+ 
+    - name: Ensure action_mail_acct is set (required if space_left_action = email)
+      lineinfile:
+        path: /etc/audit/auditd.conf
+        regexp: '^action_mail_acct\s*='
+        line: 'action_mail_acct = root'
+        create: yes
+        backup: yes
+ 
+    - name: Reload auditd configuration by sending SIGHUP
+      ansible.builtin.shell: kill -HUP $(pidof auditd)
+      args:
+        warn: false
+      become: true
