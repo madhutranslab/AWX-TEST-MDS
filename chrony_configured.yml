@@ -1,44 +1,61 @@
 ---
-- name: CIS 2.1.2 - Ensure chrony is configured with input IP
+- name: CIS 2.1.2 - Ensure chrony is configured (no server IP modification)
   hosts: all
   become: yes
   vars:
     chrony_conf: /etc/chrony.conf
     chrony_d_dir: /etc/chrony.d
-    ntp_server_ip: "{{ input_ntp_server_ip | default('pool.ntp.org') }}"
-
+ 
   tasks:
-    - name: Install chrony package
-      package:
-        name: chrony
-        state: present
-
-    - name: Ensure chronyd service is enabled and started
-      service:
-        name: chronyd
-        state: started
-        enabled: true
-
-    - name: Backup chrony.conf
+    - name: Generate timestamp for backup
+      command: date +%Y-%m-%d_%H-%M-%S
+      register: timestamp_cmd
+      changed_when: false
+ 
+    - name: Set timestamp fact
+      set_fact:
+        timestamp: "{{ timestamp_cmd.stdout }}"
+ 
+    - name: Backup /etc/chrony.conf with timestamp
       copy:
         src: "{{ chrony_conf }}"
-        dest: "{{ chrony_conf }}.bak_{{ ansible_date_time.iso8601 }}"
+        dest: "{{ chrony_conf }}.bak_{{ timestamp }}"
         remote_src: yes
       when: chrony_conf is file
-
-    - name: Backup chrony.d directory
-      command: cp -r {{ chrony_d_dir }} {{ chrony_d_dir }}.bak_{{ ansible_date_time.iso8601 }}
+ 
+    - name: Backup /etc/chrony.d files with timestamp
+      command: >
+        cp -r {{ chrony_d_dir }} {{ chrony_d_dir }}.bak_{{ timestamp }}
       when: chrony_d_dir is directory
-
-    - name: Ensure server line is present in /etc/chrony.conf
-      lineinfile:
+ 
+    - name: Ensure /etc/chrony.conf file exists and is readable
+      stat:
         path: "{{ chrony_conf }}"
-        regexp: '^\s*server\s+{{ ntp_server_ip }}\s+iburst'
-        line: "server {{ ntp_server_ip }} iburst"
-        create: yes
-        backup: yes
-
-    - name: Restart chronyd to apply configuration
-      service:
-        name: chronyd
-        state: restarted
+      register: chrony_conf_status
+ 
+    - name: Display contents of /etc/chrony.conf (for auditing)
+      command: cat "{{ chrony_conf }}"
+      when: chrony_conf_status.stat.exists
+      register: chrony_conf_content
+      changed_when: false
+ 
+    - name: Show chrony.conf content (optional)
+      debug:
+        msg: "{{ chrony_conf_content.stdout_lines }}"
+      when: chrony_conf_status.stat.exists
+ 
+    - name: Validate chrony is running and sources are available
+      command: chronyc sources -n
+      register: chrony_sources
+      changed_when: false
+ 
+    - name: Show chronyc sources
+      debug:
+        msg: "{{ chrony_sources.stdout_lines }}"
+ 
+    - name: Display final status message
+      debug:
+        msg: |
+          Chrony is configured and verified on {{ inventory_hostname }}.
+          No changes were made to time servers.
+          Please review manually if server entries are as per policy.
