@@ -1,0 +1,86 @@
+---
+- name: CIS 6.1.x - Ensure permissions on /etc/passwd-, /etc/group, /etc/group- are configured
+  hosts: all
+  become: true
+  tasks:
+
+    - name: CHECKPOINT 1 - Check if /etc/passwd- exists
+      stat:
+        path: /etc/passwd-
+      register: passwd_backup
+
+    - name: CHECKPOINT 2 - Check if /etc/group exists
+      stat:
+        path: /etc/group
+      register: group_main
+
+    - name: CHECKPOINT 3 - Check if /etc/group- exists
+      stat:
+        path: /etc/group-
+      register: group_backup
+
+    - name: CHECKPOINT 4 - Display /etc/passwd- status
+      debug:
+        msg: "File /etc/passwd- exists: {{ passwd_backup.stat.exists }}"
+
+    - name: CHECKPOINT 5 - Display /etc/group status
+      debug:
+        msg: "File /etc/group exists: {{ group_main.stat.exists }}"
+
+    - name: CHECKPOINT 6 - Display /etc/group- status
+      debug:
+        msg: "File /etc/group- exists: {{ group_backup.stat.exists }}"
+
+    - name: CHECKPOINT 7 - Set owner:group to root:root for /etc/passwd-
+      file:
+        path: /etc/passwd-
+        owner: root
+        group: root
+      when: passwd_backup.stat.exists
+
+    - name: CHECKPOINT 8 - Set mode to 0644 for /etc/passwd-
+      file:
+        path: /etc/passwd-
+        mode: '0644'
+      when: passwd_backup.stat.exists
+
+    - name: CHECKPOINT 9 - Set owner:group to root:root for /etc/group
+      file:
+        path: /etc/group
+        owner: root
+        group: root
+      when: group_main.stat.exists
+
+    - name: CHECKPOINT 10 - Set mode to 0644 for /etc/group
+      file:
+        path: /etc/group
+        mode: '0644'
+      when: group_main.stat.exists
+
+    - name: CHECKPOINT 11 - Set owner:group to root:root for /etc/group-
+      file:
+        path: /etc/group-
+        owner: root
+        group: root
+      when: group_backup.stat.exists
+
+    - name: CHECKPOINT 12 - Set mode to 0644 for /etc/group-
+      file:
+        path: /etc/group-
+        mode: '0644'
+      when: group_backup.stat.exists
+
+    - name: CHECKPOINT 13 - Skip remediation if /etc/passwd- does not exist
+      debug:
+        msg: "File /etc/passwd- not found. Skipping remediation step."
+      when: not passwd_backup.stat.exists
+
+    - name: CHECKPOINT 14 - Skip remediation if /etc/group does not exist
+      debug:
+        msg: "File /etc/group not found. No remediation needed."
+      when: not group_main.stat.exists
+
+    - name: CHECKPOINT 15 - Skip remediation if /etc/group- does not exist
+      debug:
+        msg: "File /etc/group- not found. No action needed."
+      when: not group_backup.stat.exists
