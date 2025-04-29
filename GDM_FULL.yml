@@ -1,0 +1,178 @@
+---
+- name: Configure GDM Banner and GNOME Screensaver Settings
+  hosts: all
+  become: yes
+  vars:
+    gdm_profile_name: gdm
+    banner_message: |
+      Authorized users only. All activity may be monitored and reported.
+    dconf_profile_dir: "/etc/dconf/profile"
+    dconf_db_dir: "/etc/dconf/db/{{ gdm_profile_name }}.d"
+    gdm_keyfile: "{{ dconf_db_dir }}/01-banner-message"
+    dconf_dir: /etc/dconf/db
+    dconf_profile: local
+    screensaver_file: 00-screensaver
+    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
+    dconf_config_file: /etc/dconf/db/local.d/00-screensaver
+    dconf_lock_file: /etc/dconf/db/local.d/locks/00-screensaver
+
+  tasks:
+    # --- GDM Banner Configuration ---
+
+    - name: Check if GDM is installed
+      shell: rpm -q gdm
+      register: gdm_installed
+      ignore_errors: true
+      changed_when: false
+
+    - name: Backup GDM dconf files with timestamp
+      shell: |
+        timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
+        mkdir -p /root/backup-gdm
+        if [ -f "{{ dconf_profile_dir }}/{{ gdm_profile_name }}" ]; then
+          cp "{{ dconf_profile_dir }}/{{ gdm_profile_name }}" "/root/backup-gdm/{{ gdm_profile_name }}.profile_${timestamp}.bak"
+        fi
+        if [ -d "{{ dconf_db_dir }}" ]; then
+          cp -r "{{ dconf_db_dir }}" "/root/backup-gdm/{{ gdm_profile_name }}.d_${timestamp}.bak"
+        fi
+      when: gdm_installed.rc == 0
+      args:
+        warn: false
+
+    - name: Ensure dconf profile exists for GDM
+      copy:
+        dest: "{{ dconf_profile_dir }}/{{ gdm_profile_name }}"
+        content: |
+          user-db:user
+          system-db:{{ gdm_profile_name }}
+          file-db:/usr/share/{{ gdm_profile_name }}/greeter-dconf-defaults
+      when: gdm_installed.rc == 0
+
+    - name: Ensure dconf database directory exists for GDM
+      file:
+        path: "{{ dconf_db_dir }}"
+        state: directory
+      when: gdm_installed.rc == 0
+
+    - name: Configure GDM banner-message-enable
+      blockinfile:
+        path: "{{ gdm_keyfile }}"
+        create: yes
+        block: |
+          [org/gnome/login-screen]
+          banner-message-enable=true
+        marker: ""
+      when: gdm_installed.rc == 0 and banner_message | length > 0
+
+    - name: Configure GDM banner-message-text
+      blockinfile:
+        path: "{{ gdm_keyfile }}"
+        insertafter: '^banner-message-enable=true'
+        block: "banner-message-text='{{ banner_message }}'"
+        marker: ""
+      when: gdm_installed.rc == 0 and banner_message | length > 0
+
+    - name: Configure GDM disable-user-list
+      blockinfile:
+        path: "{{ gdm_keyfile }}"
+        insertafter: '^banner-message-text='
+        block: "disable-user-list=true"
+        marker: ""
+      when: gdm_installed.rc == 0
+
+    - name: Remove GDM banner settings if no message provided
+      file:
+        path: "{{ gdm_keyfile }}"
+        state: absent
+      when: gdm_installed.rc == 0 and banner_message | length == 0
+
+    # --- Screensaver Hardening ---
+
+    - name: Ensure dconf directories exist for screensaver
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ dconf_dir }}/{{ dconf_profile }}.d"
+        - "{{ dconf_dir }}/{{ dconf_profile }}.d/locks"
+
+    - name: Backup existing screensaver config if present
+      copy:
+        src: "{{ dconf_dir }}/{{ dconf_profile }}.d/{{ screensaver_file }}"
+        dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/{{ screensaver_file }}.bak_{{ timestamp }}"
+        remote_src: yes
+      when: ansible_facts['os_family'] == 'RedHat' and ansible_facts['distribution_major_version'] | int >= 7
+      ignore_errors: true
+
+    - name: Disable GNOME screensaver and lock settings
+      copy:
+        dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/{{ screensaver_file }}"
+        content: |
+          [org/gnome/desktop/session]
+          idle-delay=uint32 0
+
+          [org/gnome/desktop/screensaver]
+          lock-enabled=false
+          idle-activation-enabled=false
+        mode: '0644'
+
+    - name: Backup existing lock file for screensaver if present
+      copy:
+        src: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks/{{ screensaver_file }}"
+        dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks/{{ screensaver_file }}.bak_{{ timestamp }}"
+        remote_src: yes
+      when: ansible_facts['os_family'] == 'RedHat' and ansible_facts['distribution_major_version'] | int >= 7
+      ignore_errors: true
+
+    - name: Lock down the screensaver settings
+      copy:
+        dest: "{{ dconf_dir }}/{{ dconf_profile }}.d/locks/{{ screensaver_file }}"
+        content: |
+          /org/gnome/desktop/session/idle-delay
+          /org/gnome/desktop/screensaver/lock-enabled
+          /org/gnome/desktop/screensaver/idle-activation-enabled
+        mode: '0644'
+
+    # --- GNOME Screensaver Lock Settings ---
+
+    - name: Backup existing GNOME lock config file if exists
+      copy:
+        src: "{{ dconf_config_file }}"
+        dest: "{{ dconf_config_file }}.bak_{{ timestamp }}"
+        remote_src: yes
+      when: ansible_facts['os_family'] == 'RedHat' and ansible_facts['distribution_major_version'] | int >= 7
+      ignore_errors: true
+
+    - name: Configure GNOME screensaver lock delay
+      copy:
+        dest: "{{ dconf_config_file }}"
+        content: |
+          [org/gnome/desktop/session]
+          idle-delay=uint32 300
+
+          [org/gnome/desktop/screensaver]
+          lock-delay=uint32 5
+        mode: '0644'
+
+    - name: Configure locks for GNOME screensaver delay
+      blockinfile:
+        path: "{{ dconf_lock_file }}"
+        create: true
+        block: |
+          /org/gnome/desktop/session/idle-delay
+          /org/gnome/desktop/screensaver/lock-delay
+        marker: ""
+
+    # --- Final steps ---
+
+    - name: Update dconf database
+      command: dconf update
+
+    - name: Reminder - Manual Reboot Required
+      debug:
+        msg: |
+          Configuration completed:
+          - GDM Banner and Disable User List
+          - Screensaver and Lock Settings
+          Please reboot the system manually to apply all changes properly.
