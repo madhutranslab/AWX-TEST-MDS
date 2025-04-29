@@ -1,61 +1,66 @@
 ---
-- name: CIS 2.1.2 - Ensure chrony is configured (no server IP modification)
+- name: CIS 2.1.2 - Ensure chrony is configured (AWX-compatible)
   hosts: all
   become: yes
+
   vars:
     chrony_conf: /etc/chrony.conf
     chrony_d_dir: /etc/chrony.d
- 
+
   tasks:
     - name: Generate timestamp for backup
       command: date +%Y-%m-%d_%H-%M-%S
       register: timestamp_cmd
       changed_when: false
- 
+
     - name: Set timestamp fact
       set_fact:
         timestamp: "{{ timestamp_cmd.stdout }}"
- 
+
     - name: Backup /etc/chrony.conf with timestamp
       copy:
         src: "{{ chrony_conf }}"
         dest: "{{ chrony_conf }}.bak_{{ timestamp }}"
         remote_src: yes
       when: chrony_conf is file
- 
+
     - name: Backup /etc/chrony.d files with timestamp
-      command: >
-        cp -r {{ chrony_d_dir }} {{ chrony_d_dir }}.bak_{{ timestamp }}
+      command: cp -r {{ chrony_d_dir }} {{ chrony_d_dir }}.bak_{{ timestamp }}
       when: chrony_d_dir is directory
- 
-    - name: Ensure /etc/chrony.conf file exists and is readable
-      stat:
+
+    - name: Ensure /etc/chrony.conf file exists
+      file:
         path: "{{ chrony_conf }}"
-      register: chrony_conf_status
- 
-    - name: Display contents of /etc/chrony.conf (for auditing)
-      command: cat "{{ chrony_conf }}"
-      when: chrony_conf_status.stat.exists
-      register: chrony_conf_content
-      changed_when: false
- 
-    - name: Show chrony.conf content (optional)
-      debug:
-        msg: "{{ chrony_conf_content.stdout_lines }}"
-      when: chrony_conf_status.stat.exists
- 
+        state: touch
+        mode: '0644'
+
+    - name: Ensure 'server {{ chrony_server_ip }}' is present in /etc/chrony.conf
+      lineinfile:
+        path: "{{ chrony_conf }}"
+        regexp: '^\s*(server|pool)\s+{{ chrony_server_ip | regex_escape }}'
+        line: "server {{ chrony_server_ip }}"
+        state: present
+        create: yes
+        backup: yes
+      register: chrony_line
+
+    - name: Restart chronyd if server line was added
+      service:
+        name: chronyd
+        state: restarted
+      when: chrony_line.changed
+
     - name: Validate chrony is running and sources are available
       command: chronyc sources -n
       register: chrony_sources
       changed_when: false
- 
+
     - name: Show chronyc sources
       debug:
         msg: "{{ chrony_sources.stdout_lines }}"
- 
+
     - name: Display final status message
       debug:
         msg: |
-          Chrony is configured and verified on {{ inventory_hostname }}.
-          No changes were made to time servers.
-          Please review manually if server entries are as per policy.
+          Chrony configured with server {{ chrony_server_ip }} on {{ inventory_hostname }}.
+          Server line was {{ 'added' if chrony_line.changed else 'already present' }}.
