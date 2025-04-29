@@ -2,6 +2,8 @@
 - name: CIS 6.1.x - Ensure permissions on /etc/passwd-, /etc/group, /etc/group- are configured
   hosts: all
   become: true
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%F_%H-%M-%S') }}"
   tasks:
 
     - name: CHECKPOINT 1 - Check if /etc/passwd- exists
@@ -30,6 +32,31 @@
     - name: CHECKPOINT 6 - Display /etc/group- status
       debug:
         msg: "File /etc/group- exists: {{ group_backup.stat.exists }}"
+
+    # === BACKUP TASKS WITH TIMESTAMP ===
+
+    - name: BACKUP - /etc/passwd- to /etc/passwd-.bak_{{ timestamp }}
+      copy:
+        src: /etc/passwd-
+        dest: /etc/passwd-.bak_{{ timestamp }}
+        remote_src: true
+      when: passwd_backup.stat.exists
+
+    - name: BACKUP - /etc/group to /etc/group.bak_{{ timestamp }}
+      copy:
+        src: /etc/group
+        dest: /etc/group.bak_{{ timestamp }}
+        remote_src: true
+      when: group_main.stat.exists
+
+    - name: BACKUP - /etc/group- to /etc/group-.bak_{{ timestamp }}
+      copy:
+        src: /etc/group-
+        dest: /etc/group-.bak_{{ timestamp }}
+        remote_src: true
+      when: group_backup.stat.exists
+
+    # === REMEDIATION ===
 
     - name: CHECKPOINT 7 - Set owner:group to root:root for /etc/passwd-
       file:
@@ -70,6 +97,8 @@
         mode: '0644'
       when: group_backup.stat.exists
 
+    # === SKIP MESSAGES ===
+
     - name: CHECKPOINT 13 - Skip remediation if /etc/passwd- does not exist
       debug:
         msg: "File /etc/passwd- not found. Skipping remediation step."
@@ -84,3 +113,12 @@
       debug:
         msg: "File /etc/group- not found. No action needed."
       when: not group_backup.stat.exists
+
+    - name: NOTICE - Manual reboot required for verification
+      debug:
+        msg: "After running this playbook, a manual system reboot is recommended for full verification."
+
+    - name: NOTICE - Backup reminder
+      debug:
+        msg: "Backups created with timestamp format like /etc/filename.bak_{{ timestamp }}"
+
