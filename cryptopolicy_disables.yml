@@ -1,58 +1,42 @@
 ---
-- name: Ensure system-wide crypto policy disables CBC for SSH with timestamped backup
+- name: Disable SSH CBC Ciphers via Crypto Policy (Manual Reboot)
   hosts: all
   become: yes
   vars:
-    ssh_config_file: /etc/ssh/sshd_config
-    sshcbc_policy_module_path: /etc/crypto-policies/policies/modules/NO-SSHCBC.pmod
-    sshcbc_policy_content: |
-      # This is a subpolicy to disable all CBC mode ciphers
-      # for the SSH protocol (libssh and OpenSSH)
-      cipher@SSH = -*-CBC
-    crypto_policy: "DEFAULT:NO-SHA1:NO-SSHCBC"  # You can customize this if needed
+    pmod_file: /etc/crypto-policies/policies/modules/NO-SSHCBC.pmod
 
   tasks:
 
-    - name: Create timestamp variable
-      set_fact:
-        current_timestamp: "{{ ansible_date_time.date | regex_replace('-', '') }}_{{ ansible_date_time.time | regex_replace(':', '-') }}"
+    - name: Ensure the crypto policies module directory exists
+      file:
+        path: /etc/crypto-policies/policies/modules
+        state: directory
+        mode: '0755'
 
-    - name: Backup existing sshd_config file with timestamp
+    - name: Create or overwrite NO-SSHCBC.pmod file to disable CBC ciphers
       copy:
-        src: "{{ ssh_config_file }}"
-        dest: "{{ ssh_config_file }}.bak_{{ current_timestamp }}"
-        remote_src: yes
-      when: ansible_facts['os_family'] == "RedHat" and lookup('ansible.builtin.file', ssh_config_file, errors='ignore') is not none
-      ignore_errors: yes
-
-    - name: Backup existing NO-SSHCBC policy module with timestamp if it exists
-      copy:
-        src: "{{ sshcbc_policy_module_path }}"
-        dest: "{{ sshcbc_policy_module_path }}.bak_{{ current_timestamp }}"
-        remote_src: yes
-      when: ansible_facts['os_family'] == "RedHat" and lookup('ansible.builtin.file', sshcbc_policy_module_path, errors='ignore') is not none
-      ignore_errors: yes
-
-    - name: Ensure NO-SSHCBC.pmod file exists with correct content
-      copy:
-        dest: "{{ sshcbc_policy_module_path }}"
-        content: "{{ sshcbc_policy_content }}"
-        owner: root
-        group: root
+        dest: "{{ pmod_file }}"
+        content: |
+          # This is a subpolicy to disable all CBC mode ciphers
+          # for the SSH protocol (libssh and OpenSSH)
+          cipher@SSH = -*-CBC
         mode: '0644'
+        backup: yes
 
-    - name: Apply updated crypto policy (disabling CBC for SSH)
-      command: update-crypto-policies --set {{ crypto_policy }}
-      register: crypto_policy_output
-      changed_when: "'Setting system policy to' in crypto_policy_output.stdout"
+    - name: Create a timestamped backup of the NO-SSHCBC.pmod file
+      copy:
+        src: "{{ pmod_file }}"
+        dest: "{{ pmod_file }}.{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}.bak"
+        remote_src: yes
 
-    - name: Display manual reboot reminder
+    - name: Apply the crypto policy with NO-SSHCBC
+      command: update-crypto-policies --set DEFAULT:NO-SSHCBC
+      register: crypto_policy_update
+      changed_when: "'Setting system-wide crypto policy' in crypto_policy_update.stdout"
+
+    - name: Reminder to manually reboot
       debug:
         msg: |
-          [INFO] CBC ciphers are now disabled via system-wide crypto policy.
-          Please reboot the system manually to apply changes.
-
-  # Reminder for sysadmins
-  # NOTE:
-  # - Always backup modified files with a timestamp.
-  # - Ensure a manual system reboot after this playbook for the changes to take full effect.
+          Crypto policy updated successfully.
+          Please manually reboot the system to apply the changes:
+      
