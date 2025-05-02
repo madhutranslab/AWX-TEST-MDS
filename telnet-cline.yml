@@ -1,0 +1,50 @@
+---
+- name: CIS 2.3.4 - Ensure Telnet client is not installed
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    backup_dir: "/var/backups"
+    log_file: "/var/log/cis_telnet_removal.log"
+    telnet_pkg: "telnet"
+
+  tasks:
+
+    - name: "Checkpoint 1 - Ensure backup directory exists"
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: "Checkpoint 2 - Check if telnet client is installed"
+      command: "rpm -q {{ telnet_pkg }}"
+      register: telnet_installed
+      ignore_errors: true
+      changed_when: false
+
+    - name: "Checkpoint 3 - Backup RPM info before removing telnet (only if installed)"
+      shell: "rpm -qi {{ telnet_pkg }} > {{ backup_dir }}/telnet_rpm_info_$(date +%F_%T).bak"
+      args:
+        executable: /bin/bash
+      when: telnet_installed.rc == 0
+
+    - name: "Checkpoint 4 - Remove telnet package (CIS 2.3.4)"
+      package:
+        name: "{{ telnet_pkg }}"
+        state: absent
+      register: telnet_removed
+
+    - name: "Checkpoint 5 - Log telnet removal result"
+      lineinfile:
+        path: "{{ log_file }}"
+        line: "Telnet removal status: {{ 'Removed' if telnet_removed.changed else 'Already Absent' }} at {{ ansible_date_time.iso8601 }}"
+        create: yes
+        mode: '0644'
+
+    - name: "Checkpoint 6 - Verify telnet is no longer available"
+      command: "which telnet"
+      register: verify_telnet
+      failed_when: verify_telnet.rc == 0
+      ignore_errors: false
+      changed_when: false
