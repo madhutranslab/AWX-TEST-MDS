@@ -4,17 +4,15 @@
   vars:
     # Specify your site-specific banner text here. If empty, /etc/motd will be removed.
     motd_content: |
-      WARNING: Unauthorized access to this system is prohibited.
-      Monitors all activity on this system.
-      All activity is logged and audited.
-
+       Welcome to {{ ansible_hostname }}
+       
     # Issue banner for local terminal login
     issue_content: |
-      WARNING: Authorized users only. All activities may be monitored and reported.
+      Welcome to {{ ansible_hostname }}
 
     # Issue banner for remote login
     issue_net_content: |
-      WARNING: Authorized users only. All activities may be monitored and reported.
+      Welcome to {{ ansible_hostname }}
 
   tasks:
     # /etc/motd Configuration
