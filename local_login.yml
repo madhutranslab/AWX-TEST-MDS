@@ -4,8 +4,12 @@
   vars:
     # Issue banner for local terminal login
     issue_content: |
-      WARNING: Authorized users only. All activities may be monitored and reported.
-
+          **********************************************************************************
+          *                                                                                *
+          * Welcome to {{ ansible_hostname }}{{ ' ' * (67 - ansible_hostname | length) }}  *
+          *                                                                                *
+          *                                                                                *
+          **********************************************************************************
   tasks:
     - name: "Backup existing /etc/issue with timestamp"
       ansible.builtin.shell: |
