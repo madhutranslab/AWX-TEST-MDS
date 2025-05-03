@@ -4,7 +4,12 @@
   vars:
     # Issue banner for remote login
     issue_net_content: |
-      WARNING: Authorized users only. All activities may be monitored and reported.
+          **********************************************************************************
+          *                                                                                *
+          * Welcome to {{ ansible_hostname }}{{ ' ' * (67 - ansible_hostname | length) }}  *
+          *                                                                                *
+          *                                                                                *
+          **********************************************************************************
 
   tasks:
     - name: "Backup existing /etc/issue.net with timestamp"
