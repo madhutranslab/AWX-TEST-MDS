@@ -2,31 +2,28 @@
 - name: Ensure /etc/motd has the correct banner with hostname
   hosts: all
   become: true
+  gather_facts: true  # required to access ansible_hostname
   vars:
     motd_file: /etc/motd
 
   tasks:
-    - name: Get system hostname
-      ansible.builtin.hostname:
-      register: hostname_info
-
     - name: Create expected banner content
       set_fact:
         expected_banner: |
           **********************************************************************************
           *                                                                                *
-          * Welcome to {{ hostname_info.name }}{{ ' ' * (67 - hostname_info.name | length) }}*
+          * Welcome to {{ ansible_hostname }}{{ ' ' * (67 - ansible_hostname | length) }}*
           *                                                                                *
           *                                                                                *
           **********************************************************************************
 
     - name: Check if /etc/motd exists
-      ansible.builtin.stat:
+      stat:
         path: "{{ motd_file }}"
       register: motd_stat
 
     - name: Read current /etc/motd content
-      ansible.builtin.slurp:
+      slurp:
         path: "{{ motd_file }}"
       when: motd_stat.stat.exists
       register: motd_content
@@ -37,14 +34,14 @@
       when: motd_stat.stat.exists
 
     - name: Backup existing MOTD if different
-      ansible.builtin.copy:
+      copy:
         src: "{{ motd_file }}"
         dest: "{{ motd_file }}.bak.{{ ansible_date_time.iso8601 | regex_replace('[^0-9]', '') }}"
         remote_src: true
       when: motd_stat.stat.exists and current_motd != expected_banner
 
     - name: Update MOTD if different or create if not exists
-      ansible.builtin.copy:
+      copy:
         content: "{{ expected_banner }}"
         dest: "{{ motd_file }}"
         owner: root
