@@ -12,7 +12,7 @@
         expected_banner: |
           **********************************************************************************
           *                                                                                *
-          * Welcome to {{ ansible_hostname }}{{ ' ' * (67 - ansible_hostname | length) }}*
+          * Welcome to {{ ansible_hostname }}{{ ' ' * (67 - ansible_hostname | length) }}  *
           *                                                                                *
           *                                                                                *
           **********************************************************************************
