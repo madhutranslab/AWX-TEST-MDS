@@ -1,44 +1,34 @@
 ---
-- hosts: all
+- name: Configure Remote Login Banner (/etc/issue.net)
+  hosts: all
   become: yes
   vars:
-    # Issue banner for remote login
-    issue_net_content: |
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+    remote_banner: |
           **********************************************************************************
           *                                                                                *
           * Welcome to {{ ansible_hostname }}{{ ' ' * (67 - ansible_hostname | length) }}  *
           *                                                                                *
           *                                                                                *
           **********************************************************************************
-
   tasks:
-    - name: "Backup existing /etc/issue.net with timestamp"
-      ansible.builtin.shell: |
-        if [ -f /etc/issue.net ]; then
-          cp /etc/issue.net /etc/issue.net.bak_$(date +"%Y-%m-%d_%H-%M-%S")
-        fi
-      args:
-        warn: false
-      tags: [backup, issue_net]
-
-    - name: "Configure /etc/issue.net with site policy banner"
-      ansible.builtin.copy:
-        content: "{{ issue_net_content }}"
-        dest: /etc/issue.net
+    - name: Backup /etc/issue.net with timestamp
+      copy:
+        src: /etc/issue.net
+        dest: "/etc/issue.net.backup.{{ timestamp }}"
+        remote_src: yes
         owner: root
         group: root
         mode: '0644'
-      when: issue_net_content | length > 0
-      tags: [configure, issue_net]
 
-    - name: "Remove /etc/issue.net if banner not used"
-      ansible.builtin.file:
-        path: /etc/issue.net
-        state: absent
-      when: issue_net_content | length == 0
-      tags: [remove, issue_net]
+    - name: Set remote login banner in /etc/issue.net
+      copy:
+        dest: /etc/issue.net
+        content: "{{ remote_banner }}"
+        owner: root
+        group: root
+        mode: '0644'
 
-    - name: "Reminder - Manual reboot required to verify changes"
-      ansible.builtin.debug:
-        msg: "Manual reboot is required after script execution to verify changes."
-      tags: [notice]
+    - name: Reminder for manual reboot
+      debug:
+        msg: "Remote banner set. Please manually reboot and test SSH login to verify the banner."
