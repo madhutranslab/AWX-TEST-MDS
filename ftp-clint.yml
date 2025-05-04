@@ -1,0 +1,77 @@
+---
+- name: CIS 2.3.1 - Ensure ftp client is not installed
+  hosts: all
+  become: yes
+  vars:
+    checkpoint_dir: "/var/log/cis_checkpoints"
+    checkpoint_file: "{{ checkpoint_dir }}/2.3.1_remove_ftp.log"
+    backup_dir: "/var/backups/cis_ftp_removal"
+    ftp_pkg: "ftp"
+
+  tasks:
+
+    - name: Ensure checkpoint directory exists
+      file:
+        path: "{{ checkpoint_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Ensure backup directory exists
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Gather installed package facts
+      package_facts:
+
+    - name: Set fact if FTP is installed
+      set_fact:
+        ftp_installed: "{{ ftp_pkg in ansible_facts.packages }}"
+
+    - name: Backup RPM list before changes (if ftp is installed)
+      shell: rpm -qa > {{ backup_dir }}/rpm_list_before_ftp_removal.txt
+      when: ftp_installed
+
+    - name: Log FTP status before any action
+      lineinfile:
+        path: "{{ checkpoint_file }}"
+        create: yes
+        line: >
+          {% if ftp_installed %}
+          FTP client was installed and will be removed.
+          {% else %}
+          FTP client was NOT installed.
+          {% endif %}
+
+    - name: Remove FTP client if present
+      dnf:
+        name: "{{ ftp_pkg }}"
+        state: absent
+      when: ftp_installed
+
+    - name: Refresh package facts after removal
+      package_facts:
+
+    - name: Set fact if FTP is still installed
+      set_fact:
+        ftp_still_installed: "{{ ftp_pkg in ansible_facts.packages }}"
+
+    - name: Log removal result
+      lineinfile:
+        path: "{{ checkpoint_file }}"
+        line: >
+          {% if not ftp_still_installed %}
+          FTP removal confirmed or already not present.
+          {% else %}
+          FTP removal failed — package still installed.
+          {% endif %}
+
+    - name: Fail if FTP still installed
+      fail:
+        msg: "FTP package is still installed!"
+      when: ftp_still_installed
+
+    - name: Output checkpoint log path
+      debug:
+        msg: "Checkpoint log saved at {{ checkpoint_file }}"
