@@ -1,5 +1,5 @@
 ---
-- name: CIS 2.3.1 - Ensure ftp client is not installed
+- name: CIS 2.3.1 - Ensure FTP client is not installed
   hosts: all
   become: yes
   vars:
@@ -29,9 +29,18 @@
       set_fact:
         ftp_installed: "{{ ftp_pkg in ansible_facts.packages }}"
 
-    - name: Backup RPM list before changes (if ftp is installed)
-      shell: rpm -qa > {{ backup_dir }}/rpm_list_before_ftp_removal.txt
-      when: ftp_installed
+    - name: Show FTP installed status
+      debug:
+        msg: "FTP installed: {{ ftp_installed }}"
+
+    - name: Backup full RPM list regardless of FTP status
+      shell: "rpm -qa > {{ backup_dir }}/rpm_list_all_{{ ansible_date_time.date }}_{{ ansible_date_time.time }}.txt"
+      register: rpm_backup_result
+      changed_when: false
+
+    - name: Show backup result
+      debug:
+        var: rpm_backup_result
 
     - name: Log FTP status before any action
       lineinfile:
