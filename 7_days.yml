@@ -1,44 +1,41 @@
 ---
-- name: Secure SSH configuration with backup
+- name: Ensure PASS_WARN_AGE is 10 or more and update user warn days
   hosts: all
-  become: true
+  become: yes
   vars:
-    ssh_config_path: /etc/ssh/sshd_config
-    timestamp: "{{ lookup('pipe', 'date +%Y-%m-%d_%H-%M-%S') }}"
-    backup_file: "{{ ssh_config_path }}.bak_{{ timestamp }}"
-
+    login_defs_path: /etc/login.defs
+    backup_dir: /root/login_defs_backups
+    pass_warn_age_value: 10
   tasks:
 
-    - name: Check if sshd_config exists
-      stat:
-        path: "{{ ssh_config_path }}"
-      register: ssh_config_stat
+    - name: Create backup directory if it doesn't exist
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
 
-    - name: Backup sshd_config with timestamp
+    - name: Backup /etc/login.defs with timestamp
       copy:
-        src: "{{ ssh_config_path }}"
-        dest: "{{ backup_file }}"
-        remote_src: true
-      when: ssh_config_stat.stat.exists
+        src: "{{ login_defs_path }}"
+        dest: "{{ backup_dir }}/login.defs.backup_{{ ansible_date_time.iso8601 }}"
+        remote_src: yes
+        mode: preserve
 
-    - name: Example - Disable root login (customize as needed)
+    - name: Ensure PASS_WARN_AGE is set to 10 or more
       lineinfile:
-        path: "{{ ssh_config_path }}"
-        regexp: '^#?PermitRootLogin\s+.*'
-        line: 'PermitRootLogin no'
-        backup: no
+        path: "{{ login_defs_path }}"
+        regexp: '^(#\s*)?PASS_WARN_AGE\s+'
+        line: "PASS_WARN_AGE {{ pass_warn_age_value }}"
+        state: present
+        backrefs: yes
 
-    - name: Example - Set MaxAuthTries to 3
-      lineinfile:
-        path: "{{ ssh_config_path }}"
-        regexp: '^#?MaxAuthTries\s+.*'
-        line: 'MaxAuthTries 3'
-        backup: no
+    - name: Get list of users with password set
+      command: awk -F: '$2 !~ /^[!*]/ {print $1}' /etc/shadow
+      register: users_with_password
+      changed_when: false
 
-    - name: Reminder to manually reboot
-      debug:
-        msg: |
-         SH configuration has been updated and backed up as:
-          {{ backup_file }}
-
-          Please reboot the system manually to apply changes and verify SSH behavior.
+    - name: Set password warn days for all users with a password
+      command: chage --warndays {{ pass_warn_age_value }} {{ item }}
+      loop: "{{ users_with_password.stdout_lines }}"
+      when: item not in ['nfsnobody', 'nobody']  # Skip system accounts if needed
+      ignore_errors: yes  # If some users can't be changed (like system accounts), skip
