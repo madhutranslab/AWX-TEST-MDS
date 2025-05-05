@@ -16,9 +16,16 @@
         mode: '0755'
 
     - name: Backup current RPM package list with timestamp
-      shell: "rpm -qa > {{ backup_dir }}/rpm_list_{{ timestamp }}.txt"
-      args:
-        executable: /bin/bash
+      dnf:
+        list: installed
+      register: rpm_list
+      changed_when: false
+
+    - name: Save package list to file
+      copy:
+        content: "{{ rpm_list.stdout }}"
+        dest: "{{ backup_dir }}/rpm_list_{{ timestamp }}.txt"
+        mode: '0644'
 
     - name: Check if gdm is installed
       shell: "rpm -q gdm"
