@@ -1,0 +1,23 @@
+---
+- name: Ensure sudo commands use pty
+  hosts: all
+  become: yes
+  tasks:
+    - name: Create timestamped backup of sudoers file
+      command: cp /etc/sudoers /etc/sudoers.bak-{{ ansible_date_time.date }}-{{ ansible_date_time.hour }}{{ ansible_date_time.minute }}
+
+    - name: Ensure 'Defaults use_pty' exists in sudoers
+      lineinfile:
+        path: /etc/sudoers
+        line: "Defaults use_pty"
+        state: present
+        validate: "/usr/sbin/visudo -cf %s"
+
+    - name: Verify sudo configuration
+      command: /usr/sbin/visudo -c
+      register: sudo_check
+      changed_when: sudo_check.rc != 0
+
+    - name: Display verification result
+      debug:
+        msg: "sudoers file check status: {{ sudo_check.stdout }}"
