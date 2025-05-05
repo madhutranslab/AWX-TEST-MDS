@@ -27,22 +27,24 @@
         dest: "{{ backup_dir }}/rpm_list_{{ timestamp }}.txt"
         mode: '0644'
 
-    - name: Check if gdm is installed
-      shell: "rpm -q gdm"
+    - name: Check if gdm is installed using dnf
+      dnf:
+        name: gdm
+        state: present
       register: gdm_check
-      ignore_errors: true
-      failed_when: false  # Prevent task failure if gdm is not installed
+      failed_when: false
+      changed_when: false
 
     - name: Remove gdm package if installed
       dnf:
         name: gdm
         state: absent
-      when: gdm_check.rc == 0
+      when: gdm_check.state == 'present'
 
     - name: Log result of gdm removal
       lineinfile:
         path: "{{ log_file }}"
-        line: "{{ timestamp }} - GDM removal {{ 'completed' if gdm_check.rc == 0 else 'skipped (not installed)' }}"
+        line: "{{ timestamp }} - GDM removal {{ 'completed' if gdm_check.state == 'present' else 'skipped (not installed)' }}"
         create: yes
         mode: '0644'
 
