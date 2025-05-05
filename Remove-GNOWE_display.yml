@@ -24,6 +24,7 @@
       shell: "rpm -q gdm"
       register: gdm_check
       ignore_errors: true
+      failed_when: false  # Prevent task failure if gdm is not installed
 
     - name: Remove gdm package if installed
       dnf:
@@ -53,10 +54,3 @@
         create: yes
         mode: '0644'
       when: target_check.stdout == "graphical.target"
-
-    - name: Final reboot note (manual)
-      debug:
-        msg: |
-          ✅ GDM removal script completed.
-          📌 Please manually reboot the system to apply all changes: `sudo reboot`
-          🔐 Log file: {{ log_file }}
