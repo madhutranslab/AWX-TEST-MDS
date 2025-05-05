@@ -1,0 +1,106 @@
+---
+- name: Harden system partitions and remediate mount options
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Ensure nodev, nosuid, noexec options are set on /tmp partition
+      mount:
+        name: /tmp
+        fstype: "{{ ansible_mounts | selectattr('mount', 'equalto', '/tmp') | list | map(attribute='fstype') | first }}"
+        opts: "defaults,rw,nosuid,nodev,noexec,relatime"
+        state: mounted
+      when: ansible_mounts | selectattr('mount', 'equalto', '/tmp') | list | length > 0
+
+    - name: Ensure nodev, nosuid, noexec options are set on /home partition
+      mount:
+        name: /home
+        fstype: "{{ ansible_mounts | selectattr('mount', 'equalto', '/home') | list | map(attribute='fstype') | first }}"
+        opts: "defaults,rw,nosuid,nodev,noexec,relatime"
+        state: mounted
+      when: ansible_mounts | selectattr('mount', 'equalto', '/home') | list | length > 0
+
+    - name: Ensure noexec option on /var/tmp partition
+      mount:
+        path: /var/tmp
+        fstype: xfs
+        opts: "defaults,rw,nosuid,nodev,noexec,relatime"
+        state: mounted
+        passno: 0
+        src: /dev/mapper/ocivolume-varTmp
+      when: ansible_mounts | selectattr('mount', 'equalto', '/var/tmp') | list | length > 0
+
+    - name: Ensure correct options on /var/log partition
+      mount:
+        path: /var/log
+        fstype: xfs
+        opts: "defaults,rw,nosuid,nodev,noexec,relatime"
+        state: mounted
+        passno: 0
+        src: /dev/mapper/ocivolume-varLog
+      when: ansible_mounts | selectattr('mount', 'equalto', '/var/log') | list | length > 0
+
+    - name: Ensure nodev option on /var/log/audit partition
+      mount:
+        path: /var/log/audit
+        fstype: xfs
+        opts: "defaults,rw,nosuid,nodev,noexec,relatime"
+        state: mounted
+        passno: 0
+        src: /dev/mapper/ocivolume-varLogAudit
+      when: ansible_mounts | selectattr('mount', 'equalto', '/var/log/audit') | list | length > 0
+
+    - name: Remount /tmp partition
+      command: mount -o remount /tmp
+      when: ansible_mounts | selectattr('mount', 'equalto', '/tmp') | list | length > 0
+
+    - name: Remount /home partition
+      command: mount -o remount /home
+      when: ansible_mounts | selectattr('mount', 'equalto', '/home') | list | length > 0
+
+    - name: Remount /var/tmp partition
+      command: mount -o remount /var/tmp
+      when: ansible_mounts | selectattr('mount', 'equalto', '/var/tmp') | list | length > 0
+
+    - name: Remount /var/log partition
+      command: mount -o remount /var/log
+      when: ansible_mounts | selectattr('mount', 'equalto', '/var/log') | list | length > 0
+
+    - name: Remount /var/log/audit partition
+      command: mount -o remount /var/log/audit
+      when: ansible_mounts | selectattr('mount', 'equalto', '/var/log/audit') | list | length > 0
+
+    - name: Ensure /etc/fstab has correct options for /tmp
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^([^#]*\s+/tmp\s+[^#]+)'
+        line: '\1,nosuid,nodev,noexec'
+        create: yes
+
+    - name: Ensure /etc/fstab has correct options for /home
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^([^#]*\s+/home\s+[^#]+)'
+        line: '\1,nosuid,nodev,noexec'
+        create: yes
+
+    - name: Ensure /etc/fstab has correct options for /var/tmp
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^([^#]*\s+/var/tmp\s+[^#]+)'
+        line: '\1,nosuid,nodev,noexec'
+        create: yes
+
+    - name: Ensure /etc/fstab has correct options for /var/log
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^([^#]*\s+/var/log\s+[^#]+)'
+        line: '\1,nosuid,nodev,noexec'
+        create: yes
+
+    - name: Ensure /etc/fstab has correct options for /var/log/audit
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^([^#]*\s+/var/log/audit\s+[^#]+)'
+        line: '\1,nosuid,nodev,noexec'
+        create: yes
