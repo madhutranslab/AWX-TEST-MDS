@@ -23,7 +23,7 @@
 
     - name: Save package list to file
       copy:
-        content: "{{ rpm_list.stdout }}"
+        content: "{{ rpm_list.results | map(attribute='name') | join('\n') }}"
         dest: "{{ backup_dir }}/rpm_list_{{ timestamp }}.txt"
         mode: '0644'
 
