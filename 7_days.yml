@@ -1,41 +1,40 @@
 ---
-- name: Ensure PASS_WARN_AGE is 10 or more and update user warn days
+- name: Ensure PASS_WARN_AGE is set to 10 days
   hosts: all
-  become: yes
+  become: true
   vars:
-    login_defs_path: /etc/login.defs
-    backup_dir: /root/login_defs_backups
-    pass_warn_age_value: 10
+    pass_warn_days: 10
+    login_defs: /etc/login.defs
+    login_defs_backup: "/etc/login.defs.backup_{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
   tasks:
-
-    - name: Create backup directory if it doesn't exist
-      file:
-        path: "{{ backup_dir }}"
-        state: directory
-        mode: '0755'
 
     - name: Backup /etc/login.defs with timestamp
       copy:
-        src: "{{ login_defs_path }}"
-        dest: "{{ backup_dir }}/login.defs.backup_{{ ansible_date_time.iso8601 }}"
+        src: "{{ login_defs }}"
+        dest: "{{ login_defs_backup }}"
         remote_src: yes
-        mode: preserve
+      when: login_defs is file
 
-    - name: Ensure PASS_WARN_AGE is set to 10 or more
+    - name: Set PASS_WARN_AGE to 10 in /etc/login.defs
       lineinfile:
-        path: "{{ login_defs_path }}"
-        regexp: '^(#\s*)?PASS_WARN_AGE\s+'
-        line: "PASS_WARN_AGE {{ pass_warn_age_value }}"
-        state: present
-        backrefs: yes
+        path: "{{ login_defs }}"
+        regexp: '^\s*PASS_WARN_AGE\s+'
+        line: "PASS_WARN_AGE {{ pass_warn_days }}"
+        create: yes
 
-    - name: Get list of users with password set
-      command: awk -F: '$2 !~ /^[!*]/ {print $1}' /etc/shadow
-      register: users_with_password
+    - name: Get list of local users with password set
+      command: >
+        awk -F: '$$2 !~ /^[!*]/ { print $$1 }' /etc/shadow
+      register: passwd_users
       changed_when: false
 
-    - name: Set password warn days for all users with a password
-      command: chage --warndays {{ pass_warn_age_value }} {{ item }}
-      loop: "{{ users_with_password.stdout_lines }}"
-      when: item not in ['nfsnobody', 'nobody']  # Skip system accounts if needed
-      ignore_errors: yes  # If some users can't be changed (like system accounts), skip
+    - name: Set password warn days to 10 for users with password
+      command: "chage --warndays {{ pass_warn_days }} {{ item }}"
+      loop: "{{ passwd_users.stdout_lines }}"
+      when: item != 'root'  # Optional: skip root if desired
+
+    - name: Reminder to manually reboot the system
+      debug:
+        msg: |
+          Manual reboot required to verify changes.
+          Please run: reboot
