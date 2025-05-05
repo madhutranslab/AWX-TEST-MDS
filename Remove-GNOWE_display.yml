@@ -1,0 +1,62 @@
+---
+- name: Safely remove GNOME Display Manager (gdm) and configure system for CLI
+  hosts: all
+  become: true
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%F_%T') }}"
+    backup_dir: "/var/backups/gdm_removal"
+    log_file: "/var/log/remove_gdm_{{ timestamp }}.log"
+
+  tasks:
+
+    - name: Ensure backup directory exists
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Backup current RPM package list with timestamp
+      shell: "rpm -qa > {{ backup_dir }}/rpm_list_{{ timestamp }}.txt"
+      args:
+        executable: /bin/bash
+
+    - name: Check if gdm is installed
+      shell: "rpm -q gdm"
+      register: gdm_check
+      ignore_errors: true
+
+    - name: Remove gdm package if installed
+      dnf:
+        name: gdm
+        state: absent
+      when: gdm_check.rc == 0
+
+    - name: Log result of gdm removal
+      lineinfile:
+        path: "{{ log_file }}"
+        line: "{{ timestamp }} - GDM removal {{ 'completed' if gdm_check.rc == 0 else 'skipped (not installed)' }}"
+        create: yes
+        mode: '0644'
+
+    - name: Check current default system target
+      shell: systemctl get-default
+      register: target_check
+
+    - name: Set system default to multi-user.target if currently graphical.target
+      command: systemctl set-default multi-user.target
+      when: target_check.stdout == "graphical.target"
+
+    - name: Log target change if needed
+      lineinfile:
+        path: "{{ log_file }}"
+        line: "{{ timestamp }} - System default target changed to multi-user.target"
+        create: yes
+        mode: '0644'
+      when: target_check.stdout == "graphical.target"
+
+    - name: Final reboot note (manual)
+      debug:
+        msg: |
+          ✅ GDM removal script completed.
+          📌 Please manually reboot the system to apply all changes: `sudo reboot`
+          🔐 Log file: {{ log_file }}
