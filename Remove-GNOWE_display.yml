@@ -39,12 +39,12 @@
       dnf:
         name: gdm
         state: absent
-      when: gdm_check.state == 'present'
+      when: gdm_check.results | length > 0
 
     - name: Log result of gdm removal
       lineinfile:
         path: "{{ log_file }}"
-        line: "{{ timestamp }} - GDM removal {{ 'completed' if gdm_check.state == 'present' else 'skipped (not installed)' }}"
+        line: "{{ timestamp }} - GDM removal {{ 'completed' if gdm_check.results | length > 0 else 'skipped (not installed)' }}"
         create: yes
         mode: '0644'
 
@@ -63,3 +63,10 @@
         create: yes
         mode: '0644'
       when: target_check.stdout == "graphical.target"
+
+    - name: Final reboot note (manual)
+      debug:
+        msg: |
+          ✅ GDM removal script completed.
+          📌 Please manually reboot the system to apply all changes: `sudo reboot`
+          🔐 Log file: {{ log_file }}
