@@ -1,0 +1,44 @@
+---
+- name: Remediate unconfined services (CIS 1.5.1.6)
+  hosts: all
+  become: yes
+  vars:
+    selinux_policy_dir: "/etc/selinux/targeted/modules/active/modules"
+    backup_dir: "/root/selinux_backups"
+    timestamp: "{{ ansible_date_time.date }}_{{ ansible_date_time.time | regex_replace(':', '') }}"
+
+  tasks:
+
+    - name: Ensure backup directory exists
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Find unconfined processes
+      command: "ps -eZ | grep unconfined_service_t"
+      register: unconfined_services
+      ignore_errors: yes
+
+    - name: Print unconfined processes
+      debug:
+        msg: "{{ unconfined_services.stdout_lines }}"
+      when: unconfined_services.stdout != ""
+
+    - name: Fail if unconfined services are found
+      fail:
+        msg: >
+          Unconfined services found: {{ unconfined_services.stdout_lines | join(', ') }}.
+          Review and apply appropriate SELinux contexts or policies. Reboot is required after changes.
+      when: unconfined_services.stdout != ""
+
+    - name: Backup SELinux policy modules (if any will be customized later)
+      shell: |
+        cp -a "{{ selinux_policy_dir }}" "{{ backup_dir }}/modules_backup_{{ timestamp }}"
+      when: unconfined_services.stdout != ""
+
+    - name: Notify for manual reboot
+      debug:
+        msg: "Manual reboot required after applying SELinux context or custom policy fixes."
+      when: unconfined_services.stdout != ""
+
