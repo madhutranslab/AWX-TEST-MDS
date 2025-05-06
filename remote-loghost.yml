@@ -1,61 +1,36 @@
----
-- name: Configure rsyslog to send logs to a remote log host
+- name: Configure rsyslog for remote logging (AWX)
   hosts: all
   become: yes
   vars:
-    remote_log_host: "{{ remote_log_host | default(omit) }}"
+    remote_ip: "{{ remote_ip }}"  
+    timestamp: "{{ ansible_date_time.epoch }}"
 
   tasks:
-    - name: Fail if remote_log_host is not provided
-      fail:
-        msg: "You must pass the remote_log_host variable using --extra-vars"
-      when: remote_log_host is omit
-
-    - name: Set timestamp variable
-      set_fact:
-        timestamp: "{{ ansible_date_time.iso8601_basic }}"
-
-    - name: Create backups of all rsyslog.d/*.conf files
-      shell: |
-        shopt -s nullglob  # Ensures no match returns an empty array
-        files=(/etc/rsyslog.d/*.conf)
-        if [ ${#files[@]} -gt 0 ]; then
-          for file in "${files[@]}"; do
-            cp "$file" "$file.{{ timestamp }}.bak";
-          done
-        else
-          echo "No .conf files found in /etc/rsyslog.d/";
-        fi
-      args:
-        executable: /bin/bash
-      register: backup_result
-      failed_when: backup_result.rc != 0 and backup_result.stderr | length > 0
-
-    - name: Create backup of /etc/rsyslog.conf
+    - name: Backup existing rsyslog config with timestamp
       copy:
         src: /etc/rsyslog.conf
-        dest: "/etc/rsyslog.conf.{{ timestamp }}.bak"
+        dest: "/etc/rsyslog.conf.bak-{{ timestamp }}"
         remote_src: yes
 
-    - name: Ensure /etc/rsyslog.d/ exists
-      file:
-        path: /etc/rsyslog.d
-        state: directory
-        mode: '0755'
-
-    - name: Add remote log host to rsyslog configuration
-      blockinfile:
+    - name: Configure rsyslog forwarding
+      lineinfile:
         path: /etc/rsyslog.conf
-        marker: "# {mark} ANSIBLE MANAGED BLOCK"
-        line: "*.* action(type=\"omfwd\" target=\"{{ remote_log_host }}\" port=\"514\" protocol=\"tcp\" action.resumeRetryCount=\"100\" queue.type=\"LinkedList\" queue.size=\"1000\")"
-        create: yes
+        line: '*.* action(type="omfwd" target="{{ remote_ip }}" port="514" protocol="tcp" action.resumeRetryCount="100" queue.type="LinkedList" queue.size="1000")'
+        state: present
+        insertafter: EOF
 
-    - name: Restart rsyslog service
-      systemd:
+    - name: Ensure timestamp format is set in rsyslog
+      lineinfile:
+        path: /etc/rsyslog.conf
+        line: '$ActionFileDefaultTemplate RSYSLOG_FileFormat'
+        state: present
+        insertafter: EOF
+
+    - name: Restart rsyslog
+      service:
         name: rsyslog
         state: restarted
-        enabled: yes
 
-    - name: Print message after successful configuration
-      debug:
-        msg: "Rsyslog has been configured to send logs to {{ remote_log_host }} and rsyslog service has been restarted."
+    - name: Prompt for manual reboot
+      pause:
+        prompt: "Configuration applied. Please reboot the system manually if necessary."
