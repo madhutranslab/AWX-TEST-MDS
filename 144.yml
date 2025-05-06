@@ -1,0 +1,29 @@
+- name: Ensure audit rules are set to immutable mode (CIS 5.2.3.20)
+  hosts: all
+  become: yes
+  vars:
+    audit_immutable_file: /etc/audit/rules.d/99-finalize.rules
+
+  tasks:
+    - name: Add '-e 2' to make audit rules immutable
+      lineinfile:
+        path: "{{ audit_immutable_file }}"
+        line: "-e 2"
+        create: yes
+        state: present
+        owner: root
+        group: root
+        mode: '0640'
+
+    - name: Load audit rules
+      command: augenrules --load
+
+    - name: Check if a reboot is required (auditd enabled = 2)
+      shell: |
+        auditctl -s | awk '/^enabled/ { if ($2 == 2) print "yes"; else print "no" }'
+      register: reboot_required
+
+    - name: Warn if a reboot is required
+      debug:
+        msg: "A reboot is required to activate immutable audit mode."
+      when: reboot_required.stdout == "yes"
