@@ -1,0 +1,29 @@
+- name: Ensure audit rules log actions as another user (CIS 5.2.3.2)
+  hosts: all
+  become: yes
+  vars:
+    audit_rule_file: /etc/audit/rules.d/50-user_emulation.rules
+
+  tasks:
+    - name: Create audit rule for user emulation
+      copy:
+        dest: "{{ audit_rule_file }}"
+        content: |
+          -a always,exit -F arch=b64 -C euid!=uid -F auid!=unset -S execve -k user_emulation
+          -a always,exit -F arch=b32 -C euid!=uid -F auid!=unset -S execve -k user_emulation
+        owner: root
+        group: root
+        mode: '0640'
+
+    - name: Load new audit rules
+      command: augenrules --load
+
+    - name: Check if a reboot is required (auditd enabled = 2)
+      shell: |
+        auditctl -s | awk '/^enabled/ { if ($2 == 2) print "yes"; else print "no" }'
+      register: reboot_required
+
+    - name: Warn if a reboot is required
+      debug:
+        msg: "A reboot is required to load user emulation audit rules."
+      when: reboot_required.stdout == "yes"
