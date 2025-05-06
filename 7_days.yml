@@ -1,39 +1,38 @@
 ---
-- name: Ensure PASS_WARN_AGE is set to 7 days
+- name: Enforce password aging warning policy
   hosts: all
-  become: true
+  become: yes
   vars:
-    pass_warn_days: 7
-    login_defs: /etc/login.defs
-    login_defs_backup: "/etc/login.defs.backup_{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+    login_defs_file: /etc/login.defs
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+    login_defs_backup: "/etc/login.defs.bak.{{ timestamp }}"
+
   tasks:
 
     - name: Backup /etc/login.defs with timestamp
       copy:
-        src: "{{ login_defs }}"
+        src: "{{ login_defs_file }}"
         dest: "{{ login_defs_backup }}"
         remote_src: yes
-      when: login_defs is file
+        backup: no
 
-    - name: Set PASS_WARN_AGE to 7 in /etc/login.defs
+    - name: Ensure PASS_WARN_AGE is set to 7 in /etc/login.defs
       lineinfile:
-        path: "{{ login_defs }}"
-        regexp: '^\s*PASS_WARN_AGE\s+'
-        line: "PASS_WARN_AGE {{ pass_warn_days }}"
+        path: "{{ login_defs_file }}"
+        regexp: '^\s*PASS_WARN_AGE'
+        line: 'PASS_WARN_AGE   7'
+        state: present
         create: yes
 
-    - name: Get list of local users with password set
-      command: >
-        awk -F: '$$2 !~ /^[!*]/ { print $$1 }' /etc/shadow
-      register: passwd_users
+    - name: Set warning age for all users with shell /bin/bash to 7
+      shell: |
+        for user in $(awk -F: '$7 == "/bin/bash" { print $1 }' /etc/passwd); do
+          chage --warndays 7 "$user"
+        done
+      args:
+        executable: /bin/bash
       changed_when: false
 
-    - name: Set password warn days to 10 for users with password
-      command: "chage --warndays {{ pass_warn_days }} {{ item }}"
-      loop: "{{ passwd_users.stdout_lines }}"
-      when: item != 'root' 
-    - name: Reminder to manually reboot the system
+    - name: Reminder - Manual Reboot Required
       debug:
-        msg: |
-          Manual reboot required to verify changes.
-          Please run: reboot
+        msg: "Configuration applied. Please manually reboot the system to verify changes."
