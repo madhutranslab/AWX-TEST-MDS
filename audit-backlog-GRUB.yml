@@ -1,0 +1,22 @@
+---
+- name: Ensure audit_backlog_limit is set and GRUB configuration is backed up
+  hosts: all
+  become: yes
+  tasks:
+    - name: Backup GRUB configuration with timestamp
+      command: cp /etc/default/grub /etc/default/grub.bak_{{ ansible_date_time.epoch }}
+      args:
+        creates: /etc/default/grub.bak_{{ ansible_date_time.epoch }}
+
+    - name: Ensure audit_backlog_limit is set in GRUB
+      command: grubby --update-kernel ALL --args 'audit_backlog_limit=8192'
+
+    - name: Validate the setting
+      command: /sbin/grubby --info=ALL | grep -Po '\baudit_backlog_limit=8192\b'
+      register: audit_check
+      failed_when: audit_check.stdout == ""
+      changed_when: audit_check.stdout != ""
+
+    - name: Notify for manual reboot
+      debug:
+        msg: "Setting applied successfully. Please perform a manual reboot to finalize changes."
