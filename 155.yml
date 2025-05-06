@@ -1,0 +1,24 @@
+---
+- name: Fix overly permissive audit log files
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Extract audit log file path from auditd.conf
+      shell: |
+        awk -F '=' '/^\s*log_file/ {gsub(/ /, "", $2); print $2}' /etc/audit/auditd.conf
+      register: audit_log_file
+      changed_when: false
+
+    - name: Get audit log directory path
+      shell: dirname "{{ audit_log_file.stdout }}"
+      register: audit_log_dir
+      changed_when: false
+
+    - name: Fix permissions on audit log files (enforce max 0640)
+      shell: |
+        find "{{ audit_log_dir.stdout }}" -type f \
+          \( ! -perm 0600 -a ! -perm 0640 -a ! -perm 0400 -a ! -perm 0440 -a ! -perm 0200 -a ! -perm 0040 -a ! -perm 0000 \) \
+          -exec chmod u-x,g-wx,o-rwx {} +
+      when: audit_log_dir.stdout != ""
