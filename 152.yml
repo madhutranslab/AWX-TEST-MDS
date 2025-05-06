@@ -1,0 +1,48 @@
+---
+- name: Ensure discretionary access control permission modification events are collected
+  hosts: all
+  become: true
+  tasks:
+    - name: Check UID_MIN value
+      command: awk '/^\s*UID_MIN/{print $2}' /etc/login.defs
+      register: uid_min
+      failed_when: uid_min.stdout == ""
+      changed_when: false
+
+    - name: Ensure audit rules directory exists
+      file:
+        path: /etc/audit/rules.d
+        state: directory
+        mode: '0755'
+
+    - name: Ensure audit rule file for permission modifications exists
+      copy:
+        dest: /etc/audit/rules.d/50-perm_mod.rules
+        content: |
+          # Audit rules for file permission modifications
+          UID_MIN={{ uid_min.stdout }}
+
+          # For 64-bit systems
+          -a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -F auid>=${UID_MIN} -F auid!=unset -F key=perm_mod
+          -a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F auid>=${UID_MIN} -F auid!=unset -F key=perm_mod
+          -a always,exit -F arch=b32 -S chmod,fchmod,fchmodat -F auid>=${UID_MIN} -F auid!=unset -F key=perm_mod
+          -a always,exit -F arch=b32 -S lchown,fchown,chown,fchownat -F auid>=${UID_MIN} -F auid!=unset -F key=perm_mod
+          -a always,exit -F arch=b64 -S setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr -F auid>=${UID_MIN} -F auid!=unset -F key=perm_mod
+          -a always,exit -F arch=b32 -S setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr -F auid>=${UID_MIN} -F auid!=unset -F key=perm_mod
+        mode: '0644'
+
+    - name: Reload audit rules
+      command: augenrules --load
+
+    - name: Check if a reboot is required to load audit rules
+      shell: |
+        if [[ $(auditctl -s | grep "enabled") =~ "2" ]]; then
+          echo "Reboot required to load rules"
+        fi
+      register: reboot_check
+      changed_when: false
+
+    - name: Display reboot message if needed
+      debug:
+        msg: "{{ reboot_check.stdout }}"
+      when: reboot_check.stdout == "Reboot required to load rules"
