@@ -1,0 +1,57 @@
+---
+- name: Configure TMOUT for shell timeout
+  hosts: all
+  become: yes
+  tasks:
+    
+    - name: Backup /etc/profile with timestamp
+      command: "cp /etc/profile /etc/profile.bak_{{ lookup('pipe', 'date +%F_%H-%M-%S') }}"
+      register: backup_profile
+      ignore_errors: yes
+
+    - name: Backup /etc/bashrc with timestamp
+      command: "cp /etc/bashrc /etc/bashrc.bak_{{ lookup('pipe', 'date +%F_%H-%M-%S') }}"
+      register: backup_bashrc
+      ignore_errors: yes
+
+    - name: Backup files in /etc/profile.d/ with timestamp
+      command: "cp {{ item }} {{ item }}.bak_{{ lookup('pipe', 'date +%F_%H-%M-%S') }}"
+      with_fileglob:
+        - /etc/profile.d/*.sh
+      ignore_errors: yes
+
+    - name: Ensure TMOUT is set correctly in /etc/profile
+      lineinfile:
+        path: /etc/profile
+        regexp: '^TMOUT='
+        line: 'readonly TMOUT=900 ; export TMOUT'
+        state: present
+
+    - name: Ensure TMOUT is set correctly in /etc/bashrc
+      lineinfile:
+        path: /etc/bashrc
+        regexp: '^TMOUT='
+        line: 'readonly TMOUT=900 ; export TMOUT'
+        state: present
+
+    - name: Ensure TMOUT is set correctly in files under /etc/profile.d/
+      lineinfile:
+        path: "{{ item }}"
+        regexp: '^TMOUT='
+        line: 'readonly TMOUT=900 ; export TMOUT'
+        state: present
+      with_fileglob:
+        - /etc/profile.d/*.sh
+
+    - name: Output the current TMOUT value (for verification)
+      shell: echo $TMOUT
+      register: tmout_value
+      changed_when: false
+
+    - name: Debug current TMOUT value
+      debug:
+        msg: "Current TMOUT value: {{ tmout_value.stdout }}"
+
+    - name: Prompt for reboot (manual)
+      debug:
+        msg: "A reboot is required to complete the changes. Please manually reboot the system after executing this playbook."
