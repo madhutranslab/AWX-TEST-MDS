@@ -3,20 +3,24 @@
   hosts: all
   become: true
   vars:
-    remote_log_host: "{{ remote_log_host_ip }}"  
+    remote_log_host: "{{ remote_log_host_ip }}"  # Passed at runtime or via extra vars
+
   tasks:
     - name: Backup rsyslog.conf before modification
       copy:
         src: /etc/rsyslog.conf
         dest: "/etc/rsyslog.conf.bak_{{ ansible_date_time.iso8601 }}"
 
+    - name: Ensure rsyslog.d backup directory exists
+      file:
+        path: "/etc/rsyslog.d_backup_{{ ansible_date_time.iso8601 }}"
+        state: directory
+        mode: '0755'
+
     - name: Backup rsyslog.d files before modification
-      copy:
-        src: /etc/rsyslog.d/
-        dest: "/etc/rsyslog.d_backup_{{ ansible_date_time.iso8601 }}/"
-        remote_src: yes
-        mode: 0755
-        recurse: yes
+      shell: cp -r /etc/rsyslog.d/* "/etc/rsyslog.d_backup_{{ ansible_date_time.iso8601 }}/"
+      args:
+        warn: false
 
     - name: Configure rsyslog to send logs to a remote log host
       lineinfile:
@@ -31,3 +35,5 @@
         name: rsyslog
         state: restarted
         enabled: yes
+
+    
