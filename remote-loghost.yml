@@ -17,9 +17,17 @@
         state: directory
         mode: '0755'
 
-    - name: Backup rsyslog.d files before modification
-      shell: cp -r /etc/rsyslog.d/* "/etc/rsyslog.d_backup_{{ ansible_date_time.iso8601 }}/"
+    - name: Backup rsyslog.d files before modification (if any)
+      shell: |
+        if [ -d /etc/rsyslog.d ]; then
+          shopt -s nullglob
+          files=(/etc/rsyslog.d/*)
+          if [ ${#files[@]} -gt 0 ]; then
+            cp -r /etc/rsyslog.d/* "/etc/rsyslog.d_backup_{{ ansible_date_time.iso8601 }}/"
+          fi
+        fi
       args:
+        executable: /bin/bash
         warn: false
 
     - name: Configure rsyslog to send logs to a remote log host
@@ -35,5 +43,3 @@
         name: rsyslog
         state: restarted
         enabled: yes
-
-    
