@@ -1,0 +1,27 @@
+---
+- name: Ensure unsuccessful file access attempts are collected (CIS 5.2.3.7)
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Ensure audit rules for unsuccessful file access attempts are in place
+      copy:
+        dest: /etc/audit/rules.d/50-unsuccessful-file-access.rules
+        content: |
+          # Monitor unsuccessful file access attempts for specific system calls
+          -a always,exit -F arch=b64 -S creat,open,openat,truncate,ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=unset -k access-failed
+          -a always,exit -F arch=b64 -S creat,open,openat,truncate,ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access-failed
+          -a always,exit -F arch=b32 -S creat,open,openat,truncate,ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=unset -k access-failed
+          -a always,exit -F arch=b32 -S creat,open,openat,truncate,ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access-failed
+          
+    - name: Load new audit rules
+      command: augenrules --load
+
+    - name: Check if auditd is in immutable mode
+      command: auditctl -s
+      register: audit_status
+
+    - name: Notify if reboot is required due to auditd immutable mode
+      debug:
+        msg: "Auditd is in immutable mode. Reboot is required to apply new rules."
+      when: audit_status.stdout is search('enabled[^\\n]*2')
