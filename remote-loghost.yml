@@ -6,7 +6,6 @@
     remote_log_host: "{{ remote_log_host | default(omit) }}"
 
   tasks:
-
     - name: Fail if remote_log_host is not provided
       fail:
         msg: "You must pass the remote_log_host variable using --extra-vars"
@@ -29,6 +28,8 @@
         fi
       args:
         executable: /bin/bash
+      register: backup_result
+      failed_when: backup_result.rc != 0 and backup_result.stderr | length > 0
 
     - name: Create backup of /etc/rsyslog.conf
       copy:
