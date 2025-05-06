@@ -1,0 +1,24 @@
+---
+- name: Ensure audit log directory is 0750 or more restrictive (CIS 5.2.4.1)
+  hosts: all
+  become: true
+  tasks:
+    - name: Get audit log file path from auditd.conf
+      command: awk -F '=' '/^\s*log_file\s*=/ {gsub(/ /, "", $2); print $2}' /etc/audit/auditd.conf
+      register: audit_log_file
+      changed_when: false
+
+    - name: Set fact for audit log directory
+      set_fact:
+        audit_log_dir: "{{ audit_log_file.stdout | dirname }}"
+
+    - name: Ensure audit log directory exists
+      file:
+        path: "{{ audit_log_dir }}"
+        state: directory
+
+    - name: Set permissions on audit log directory to 0750
+      file:
+        path: "{{ audit_log_dir }}"
+        mode: '0750'
+        state: directory
