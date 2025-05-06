@@ -1,0 +1,22 @@
+---
+- name: Ensure only root owns audit log files
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Extract audit log file path from auditd.conf
+      shell: |
+        awk -F '=' '/^\s*log_file/ {gsub(/ /, "", $2); print $2}' /etc/audit/auditd.conf
+      register: audit_log_file
+      changed_when: false
+
+    - name: Get audit log directory path
+      shell: dirname "{{ audit_log_file.stdout }}"
+      register: audit_log_dir
+      changed_when: false
+
+    - name: Ensure only root owns audit log files
+      shell: |
+        find "{{ audit_log_dir.stdout }}" -type f ! -user root -exec chown root {} +
+      when: audit_log_dir.stdout != ""
