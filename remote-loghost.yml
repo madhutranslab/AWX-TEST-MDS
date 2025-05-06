@@ -1,0 +1,33 @@
+---
+- name: Ensure rsyslog is configured to send logs to a remote log host
+  hosts: all
+  become: true
+  vars:
+    remote_log_host: "{{ remote_log_host_ip }}"  
+  tasks:
+    - name: Backup rsyslog.conf before modification
+      copy:
+        src: /etc/rsyslog.conf
+        dest: "/etc/rsyslog.conf.bak_{{ ansible_date_time.iso8601 }}"
+
+    - name: Backup rsyslog.d files before modification
+      copy:
+        src: /etc/rsyslog.d/
+        dest: "/etc/rsyslog.d_backup_{{ ansible_date_time.iso8601 }}/"
+        remote_src: yes
+        mode: 0755
+        recurse: yes
+
+    - name: Configure rsyslog to send logs to a remote log host
+      lineinfile:
+        path: /etc/rsyslog.conf
+        line: '*.* action(type="omfwd" target="{{ remote_log_host }}" port="514" protocol="tcp" action.resumeRetryCount="100" queue.type="LinkedList" queue.size="1000")'
+        state: present
+        create: yes
+        backup: yes
+
+    - name: Restart rsyslog service
+      systemd:
+        name: rsyslog
+        state: restarted
+        enabled: yes
