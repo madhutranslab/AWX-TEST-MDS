@@ -1,51 +1,60 @@
 ---
-- name: Ensure rsyslog is configured to send logs to a remote log host
+- name: Configure rsyslog to send logs to a remote log host
   hosts: all
-  become: true
+  become: yes
   vars:
-    rsyslog_config_path: "/etc/rsyslog.conf"
-    rsyslog_d_dir: "/etc/rsyslog.d"
-    remote_log_port: 514
-    timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
-    forward_rule: |
-      *.* action(type="omfwd" target="{{ remote_log_host }}" port="{{ remote_log_port }}" protocol="tcp"
-                 action.resumeRetryCount="100"
-                 queue.type="LinkedList" queue.size="1000")
+    remote_log_host: "{{ remote_log_host | default(omit) }}"
 
   tasks:
+
     - name: Fail if remote_log_host is not provided
       fail:
         msg: "You must pass the remote_log_host variable using --extra-vars"
-      when: remote_log_host is not defined
+      when: remote_log_host is omit
 
-    - name: Create a backup of rsyslog.conf
-      copy:
-        src: "{{ rsyslog_config_path }}"
-        dest: "{{ rsyslog_config_path }}.{{ timestamp }}.bak"
-        remote_src: yes
+    - name: Set timestamp variable
+      set_fact:
+        timestamp: "{{ ansible_date_time.iso8601_basic }}"
 
     - name: Create backups of all rsyslog.d/*.conf files
       shell: |
-        for file in {{ rsyslog_d_dir }}/*.conf; do
-          [ -f "$file" ] && cp "$file" "$file.{{ timestamp }}.bak";
-        done
+        shopt -s nullglob  # Ensures no match returns an empty array
+        files=(/etc/rsyslog.d/*.conf)
+        if [ ${#files[@]} -gt 0 ]; then
+          for file in "${files[@]}"; do
+            cp "$file" "$file.{{ timestamp }}.bak";
+          done
+        else
+          echo "No .conf files found in /etc/rsyslog.d/";
+        fi
       args:
         executable: /bin/bash
 
-    - name: Ensure remote forwarding rule is present in /etc/rsyslog.d/99-remote.conf
+    - name: Create backup of /etc/rsyslog.conf
       copy:
-        dest: "{{ rsyslog_d_dir }}/99-remote.conf"
-        content: "{{ forward_rule }}\n"
-        owner: root
-        group: root
-        mode: '0644'
+        src: /etc/rsyslog.conf
+        dest: "/etc/rsyslog.conf.{{ timestamp }}.bak"
+        remote_src: yes
 
-    - name: Restart rsyslog to apply changes
+    - name: Ensure /etc/rsyslog.d/ exists
+      file:
+        path: /etc/rsyslog.d
+        state: directory
+        mode: '0755'
+
+    - name: Add remote log host to rsyslog configuration
+      blockinfile:
+        path: /etc/rsyslog.conf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK"
+        line: "*.* action(type=\"omfwd\" target=\"{{ remote_log_host }}\" port=\"514\" protocol=\"tcp\" action.resumeRetryCount=\"100\" queue.type=\"LinkedList\" queue.size=\"1000\")"
+        create: yes
+
+    - name: Restart rsyslog service
       systemd:
         name: rsyslog
         state: restarted
-        enabled: true
+        enabled: yes
 
-    - name: Reboot reminder
+    - name: Print message after successful configuration
       debug:
-        msg: "Please manually reboot the system to complete verification."
+        msg: "Rsyslog has been configured to send logs to {{ remote_log_host }} and rsyslog service has been restarted."
