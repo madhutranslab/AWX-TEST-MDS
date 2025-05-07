@@ -44,7 +44,7 @@
 
     - name: Show context for falcon-sensor
       debug:
-        msg: "{{ falcon_sensor_context.stdout_lines | default(['No context found for falcon-sensor']) }}"
+        msg: "{{ falcon_sensor_context.stdout_lines if falcon_sensor_context.stdout_lines else ['No context found for falcon-sensor'] }}"
 
     - name: Check if falcon-sensor-updater context exists
       shell: semanage fcontext -l | grep falcon-sensor-updater
@@ -54,7 +54,7 @@
 
     - name: Show context for falcon-sensor-updater
       debug:
-        msg: "{{ falcon_updater_context.stdout_lines | default(['No context found for falcon-sensor-updater']) }}"
+        msg: "{{ falcon_updater_context.stdout_lines if falcon_updater_context.stdout_lines else ['No context found for falcon-sensor-updater'] }}"
 
     - name: Check if falcon-agent context exists
       shell: semanage fcontext -l | grep falcon-agent
@@ -64,4 +64,4 @@
 
     - name: Show context for falcon-agent
       debug:
-        msg: "{{ falcon_agent_context.stdout_lines | default(['No context found for falcon-agent']) }}"
+        msg: "{{ falcon_agent_context.stdout_lines if falcon_agent_context.stdout_lines else ['No context found for falcon-agent'] }}"
