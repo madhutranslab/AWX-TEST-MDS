@@ -1,11 +1,10 @@
 ---
-- name: Ensure sudo privilege escalation requires password
+- name: Remove NOPASSWD from sudoers files and backup
   hosts: all
   become: yes
   vars:
     timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
     backup_dir: "/var/backups/sudoers"
-
   tasks:
 
     - name: Ensure backup directory exists
@@ -14,42 +13,32 @@
         state: directory
         mode: '0755'
 
-    - name: Find files in /etc/sudoers.d containing NOPASSWD
-      shell: "grep -l '^[^#]*NOPASSWD' /etc/sudoers.d/* || true"
+    - name: Find sudoers files containing NOPASSWD
+      shell: "grep -rl '^[^#]*NOPASSWD' /etc/sudoers /etc/sudoers.d/ 2>/dev/null || true"
       register: sudoers_with_nopasswd
       changed_when: false
 
-    - name: Set list of matching sudoers files
-      set_fact:
-        matched_sudoers_files: "{{ sudoers_with_nopasswd.stdout_lines }}"
-
-    - name: Backup matched sudoers files
+    - name: Back up each sudoers file with NOPASSWD
       copy:
         src: "{{ item }}"
         dest: "{{ backup_dir }}/{{ item | basename }}.{{ timestamp }}"
         remote_src: yes
-      loop: "{{ matched_sudoers_files }}"
-      when: matched_sudoers_files | length > 0
+      loop: "{{ sudoers_with_nopasswd.stdout_lines }}"
+      when: sudoers_with_nopasswd.stdout_lines | length > 0
 
-    - name: Remove NOPASSWD lines from matched files
+    - name: Remove NOPASSWD lines from the sudoers files
       lineinfile:
         path: "{{ item }}"
-        regexp: '^([^#]*NOPASSWD)'
+        regexp: '^[^#]*NOPASSWD'
         state: absent
         backup: no
-      loop: "{{ matched_sudoers_files }}"
-      when: matched_sudoers_files | length > 0
-      notify: manual_reboot
+      loop: "{{ sudoers_with_nopasswd.stdout_lines }}"
+      when: sudoers_with_nopasswd.stdout_lines | length > 0
 
-    - name: Add change comment to modified files
+    - name: Append audit comment to modified files
       lineinfile:
         path: "{{ item }}"
         line: "# NOPASSWD lines removed by Ansible on {{ ansible_date_time.iso8601 }}"
         insertafter: EOF
-      loop: "{{ matched_sudoers_files }}"
-      when: matched_sudoers_files | length > 0
-
-  handlers:
-    - name: manual_reboot
-      debug:
-        msg: "NOPASSWD entries removed. Please manually reboot the system to verify changes."
+      loop: "{{ sudoers_with_nopasswd.stdout_lines }}"
+      when: sudoers_with_nopasswd.stdout_lines | length > 0
