@@ -1,7 +1,7 @@
 ---
-- name: Remove NOPASSWD from sudoers files and backup
+- name: Backup and remove NOPASSWD from sudoers files
   hosts: all
-  become: yes
+  become: true
   vars:
     timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
     backup_dir: "/var/backups/sudoers"
@@ -14,31 +14,35 @@
         mode: '0755'
 
     - name: Find sudoers files containing NOPASSWD
-      shell: "grep -rl '^[^#]*NOPASSWD' /etc/sudoers /etc/sudoers.d/ 2>/dev/null || true"
-      register: sudoers_with_nopasswd
+      shell: |
+        find /etc/sudoers /etc/sudoers.d/ -type f -exec grep -l '^[^#]*NOPASSWD' {} \; 2>/dev/null || true
+      register: sudoers_files
       changed_when: false
 
-    - name: Back up each sudoers file with NOPASSWD
+    - name: Show files with NOPASSWD
+      debug:
+        var: sudoers_files.stdout_lines
+
+    - name: Backup sudoers files with NOPASSWD
       copy:
         src: "{{ item }}"
         dest: "{{ backup_dir }}/{{ item | basename }}.{{ timestamp }}"
-        remote_src: yes
-      loop: "{{ sudoers_with_nopasswd.stdout_lines }}"
-      when: sudoers_with_nopasswd.stdout_lines | length > 0
+        remote_src: true
+      loop: "{{ sudoers_files.stdout_lines }}"
+      when: sudoers_files.stdout_lines | length > 0
 
-    - name: Remove NOPASSWD lines from the sudoers files
+    - name: Remove NOPASSWD lines from sudoers files
       lineinfile:
         path: "{{ item }}"
         regexp: '^[^#]*NOPASSWD'
         state: absent
-        backup: no
-      loop: "{{ sudoers_with_nopasswd.stdout_lines }}"
-      when: sudoers_with_nopasswd.stdout_lines | length > 0
+      loop: "{{ sudoers_files.stdout_lines }}"
+      when: sudoers_files.stdout_lines | length > 0
 
-    - name: Append audit comment to modified files
+    - name: Add comment about NOPASSWD removal
       lineinfile:
         path: "{{ item }}"
         line: "# NOPASSWD lines removed by Ansible on {{ ansible_date_time.iso8601 }}"
         insertafter: EOF
-      loop: "{{ sudoers_with_nopasswd.stdout_lines }}"
-      when: sudoers_with_nopasswd.stdout_lines | length > 0
+      loop: "{{ sudoers_files.stdout_lines }}"
+      when: sudoers_files.stdout_lines | length > 0
