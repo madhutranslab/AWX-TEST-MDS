@@ -1,0 +1,65 @@
+---
+- name: Ensure filesystem integrity check is scheduled with AIDE
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Create a timestamped backup of AIDE service and timer files
+      command: cp -p /etc/systemd/system/aidecheck.{service,timer} /var/backups/aidecheck-{{ ansible_date_time.epoch }}
+      ignore_errors: yes
+
+    - name: Create AIDE service file
+      copy:
+        dest: /etc/systemd/system/aidecheck.service
+        content: |
+          [Unit]
+          Description=Aide Check
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/sbin/aide --check
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Create AIDE timer file
+      copy:
+        dest: /etc/systemd/system/aidecheck.timer
+        content: |
+          [Unit]
+          Description=Aide check every day at 5AM
+
+          [Timer]
+          OnCalendar=*-*-* 05:00:00
+          Unit=aidecheck.service
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Set correct ownership and permissions on AIDE service files
+      file:
+        path: "/etc/systemd/system/aidecheck.{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - service
+        - timer
+
+    - name: Reload systemd daemon
+      command: systemctl daemon-reload
+
+    - name: Enable and start AIDE timer
+      systemd:
+        name: aidecheck.timer
+        enabled: yes
+        state: started
+
+    - name: Enable AIDE service
+      systemd:
+        name: aidecheck.service
+        enabled: yes
+
+    - name: Notify user to perform a manual reboot for verification
+      debug:
+        msg: "Please reboot the system manually to verify AIDE integrity checks."
