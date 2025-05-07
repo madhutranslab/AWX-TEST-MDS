@@ -1,5 +1,5 @@
 ---
-- name: Ensure sudoers files do not allow NOPASSWD
+- name: Ensure sudoers files do not allow NOPASSWD (PRODUCTION SAFE)
   hosts: all
   become: true
   vars:
@@ -15,15 +15,17 @@
       file:
         path: "{{ backup_dir }}"
         state: directory
+        owner: root
+        group: root
         mode: '0750'
 
-    - name: Check if sudoers files exist
+    - name: Stat sudoers files
       stat:
         path: "{{ item }}"
       loop: "{{ sudoers_files }}"
       register: sudoers_status
 
-    - name: Backup existing sudoers files
+    - name: Backup existing sudoers files with timestamp
       copy:
         src: "{{ item.stat.path }}"
         dest: "{{ backup_dir }}/{{ item.stat.path | basename }}.bak.{{ timestamp }}"
@@ -31,24 +33,24 @@
       loop: "{{ sudoers_status.results }}"
       when: item.stat.exists
 
-    - name: Remove NOPASSWD entries from existing files
-      lineinfile:
+    - name: Remove all uncommented NOPASSWD entries from sudoers files
+      replace:
         path: "{{ item.stat.path }}"
-        regexp: '^\s*([^#]\S+\s+ALL=\(ALL\)\s+NOPASSWD:\s*.*)$'
-        state: absent
+        regexp: '^[^#\n]*\bNOPASSWD\b[^\n]*\n?'
+        replace: ''
       loop: "{{ sudoers_status.results }}"
       when: item.stat.exists
 
-    - name: Validate sudoers syntax
-      command: "visudo -c"
+    - name: Validate full sudoers config
+      command: "visudo -cf /etc/sudoers"
+      register: sudo_check
       changed_when: false
+      failed_when: sudo_check.rc != 0
 
-    - name: Create missing sudoers files with secure default configuration
-      copy:
-        dest: "{{ item }}"
-        content: "# Secure sudoers file created by Ansible\n"
-        owner: root
-        group: root
-        mode: '0440'
-      loop: "{{ sudoers_files }}"
-      when: item not in sudoers_status.results | selectattr('stat.exists', 'equalto', false) | map(attribute='path') | list
+    - name: Validate sudoers.d files individually
+      command: "visudo -cf {{ item.stat.path }}"
+      loop: "{{ sudoers_status.results }}"
+      when: item.stat.exists
+      register: sudoersd_check
+      changed_when: false
+      failed_when: sudoersd_check.results | selectattr('rc', 'ne', 0) | list | length > 0
