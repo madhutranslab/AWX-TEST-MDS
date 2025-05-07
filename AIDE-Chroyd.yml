@@ -1,0 +1,32 @@
+---
+- name: Check if chronyd service is enabled and AIDE is installed
+  hosts: all
+  become: yes
+  tasks:
+    - name: Check services and packages status
+      command: "{{ item.command }}"
+      register: result
+      ignore_errors: true
+      loop:
+        - { name: 'chronyd', command: 'systemctl is-enabled chronyd' }
+        - { name: 'aide', command: 'rpm -q aide' }
+
+    - name: Print if chronyd service is enabled
+      debug:
+        msg: "chronyd service is enabled."
+      when: result.results[0].rc == 0
+
+    - name: Print if chronyd service is NOT enabled
+      debug:
+        msg: "chronyd service is NOT enabled."
+      when: result.results[0].rc != 0
+
+    - name: Print if AIDE is installed
+      debug:
+        msg: "AIDE is installed."
+      when: result.results[1].rc == 0
+
+    - name: Print if AIDE is NOT installed
+      debug:
+        msg: "AIDE is NOT installed."
+      when: result.results[1].rc != 0
