@@ -1,0 +1,55 @@
+---
+- name: Audit SELinux and unconfined services
+  hosts: all
+  become: true
+  tasks:
+ 
+    - name: Get SELinux mode (enforcing, permissive, disabled)
+      command: getenforce
+      register: selinux_mode
+ 
+    - name: Display current SELinux mode
+      debug:
+        msg: "SELinux is currently set to: {{ selinux_mode.stdout }}"
+ 
+    - name: Get list of unconfined services
+      shell: |
+        ps -eZ | grep unconfined_service_t | awk -F: '{ print $NF }' | sort | uniq
+      register: unconfined_services
+      changed_when: false
+ 
+    - name: Display unconfined services
+      debug:
+        msg: >
+          Unconfined services detected:
+          {{ unconfined_services.stdout_lines | default(['None found']) }}
+ 
+    - name: Check if falcon-sensor context exists
+      command: semanage fcontext -l | grep falcon-sensor
+      register: falcon_sensor_context
+      ignore_errors: true
+      changed_when: false
+ 
+    - name: Show context for falcon-sensor
+      debug:
+        msg: "{{ falcon_sensor_context.stdout_lines | default(['No context found for falcon-sensor']) }}"
+ 
+    - name: Check if falcon-sensor-updater context exists
+      command: semanage fcontext -l | grep falcon-sensor-updater
+      register: falcon_updater_context
+      ignore_errors: true
+      changed_when: false
+ 
+    - name: Show context for falcon-sensor-updater
+      debug:
+        msg: "{{ falcon_updater_context.stdout_lines | default(['No context found for falcon-sensor-updater']) }}"
+ 
+    - name: Check if falcon-agent context exists
+      command: semanage fcontext -l | grep falcon-agent
+      register: falcon_agent_context
+      ignore_errors: true
+      changed_when: false
+ 
+    - name: Show context for falcon-agent
+      debug:
+        msg: "{{ falcon_agent_context.stdout_lines | default(['No context found for falcon-agent']) }}"
