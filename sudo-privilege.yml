@@ -1,0 +1,47 @@
+---
+- name: Ensure sudo privilege escalation requires password
+  hosts: all
+  become: yes
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+    sudoers_files:
+      - /etc/sudoers.d/100-oracle-cloud-agent-users
+      - /etc/sudoers.d/90-cloud-init-users
+
+  tasks:
+
+    - name: Ensure backup directory exists
+      file:
+        path: "/var/backups/sudoers"
+        state: directory
+        mode: '0755'
+
+    - name: Backup sudoers files before modification
+      copy:
+        src: "{{ item }}"
+        dest: "/var/backups/sudoers/{{ item | basename }}.{{ timestamp }}"
+        remote_src: yes
+      loop: "{{ sudoers_files }}"
+      when: ansible_facts['os_family'] == 'RedHat' or ansible_facts['os_family'] == 'Debian'
+
+    - name: Remove NOPASSWD lines from sudoers.d files
+      lineinfile:
+        path: "{{ item }}"
+        regexp: '^([^#]*NOPASSWD)'
+        state: absent
+        backup: no
+      loop: "{{ sudoers_files }}"
+      notify:
+        - mark_change
+
+    - name: Add change comment to sudoers files
+      lineinfile:
+        path: "{{ item }}"
+        line: "# NOPASSWD lines removed by Ansible on {{ ansible_date_time.iso8601 }}"
+        insertafter: EOF
+      loop: "{{ sudoers_files }}"
+
+  handlers:
+    - name: mark_change
+      debug:
+        msg: "NOPASSWD entries removed. Please manually reboot the system to verify changes."
