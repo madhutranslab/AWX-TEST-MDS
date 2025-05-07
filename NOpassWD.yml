@@ -1,0 +1,46 @@
+---
+- name: Ensure sudoers files do not allow NOPASSWD
+  hosts: all
+  become: true
+  vars:
+    sudoers_files:
+      - /etc/sudoers.d/100-oracle-cloud-agent-users
+      - /etc/sudoers.d/90-cloud-init-users
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+ 
+  tasks:
+ 
+    - name: Check if sudoers file exists
+      stat:
+        path: "{{ item }}"
+      loop: "{{ sudoers_files }}"
+      register: sudoers_status
+ 
+    - name: Backup and clean NOPASSWD lines
+      block:
+        - name: Backup the sudoers file
+          copy:
+            src: "{{ item.stat.path }}"
+            dest: "{{ item.stat.path }}.bak.{{ timestamp }}"
+            remote_src: true
+          when: item.stat.exists
+ 
+        - name: Remove NOPASSWD entries
+          lineinfile:
+            path: "{{ item.stat.path }}"
+            regexp: '^([^#].*NOPASSWD.*)'
+            state: absent
+            backrefs: yes
+          when: item.stat.exists
+      loop: "{{ sudoers_status.results }}"
+ 
+    - name: Create missing sudoers file with default secure config
+      copy:
+        dest: "{{ item }}"
+        content: "# Secure sudoers file created by Ansible\n"
+        owner: root
+        group: root
+        mode: '0440'
+      when: not item in sudoers_status.results | selectattr('stat.exists') | map(attribute='stat.path') | list
+      loop: "{{ sudoers_files }}"
+
