@@ -25,19 +25,19 @@
 
     - name: Backup existing sudoers files
       copy:
-        src: "{{ item.path }}"
-        dest: "{{ backup_dir }}/{{ item.path | basename }}.bak.{{ timestamp }}"
+        src: "{{ item.stat.path }}"
+        dest: "{{ backup_dir }}/{{ item.stat.path | basename }}.bak.{{ timestamp }}"
         remote_src: true
       loop: "{{ sudoers_status.results }}"
-      when: item.exists
+      when: item.stat.exists
 
     - name: Remove NOPASSWD entries from existing files
       lineinfile:
-        path: "{{ item.path }}"
+        path: "{{ item.stat.path }}"
         regexp: '^\s*([^#]\S+\s+ALL=\(ALL\)\s+NOPASSWD:\s*.*)$'
         state: absent
       loop: "{{ sudoers_status.results }}"
-      when: item.exists
+      when: item.stat.exists
 
     - name: Validate sudoers syntax
       command: "visudo -c"
@@ -51,4 +51,4 @@
         group: root
         mode: '0440'
       loop: "{{ sudoers_files }}"
-      when: item not in sudoers_status.results | selectattr('exists', 'equalto', false) | map(attribute='path') | list
+      when: item not in sudoers_status.results | selectattr('stat.exists', 'equalto', false) | map(attribute='path') | list
