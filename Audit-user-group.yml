@@ -1,0 +1,50 @@
+---
+- name: Enforce Audit Rules for User/Group Modifications
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Generate timestamp for backup
+      command: date +"%Y%m%d_%H%M%S"
+      register: timestamp
+      changed_when: false
+
+    - name: Backup existing audit rules
+      copy:
+        src: /etc/audit/rules.d/50-identity.rules
+        dest: "/etc/audit/rules.d/50-identity.rules.{{ timestamp.stdout }}"
+        remote_src: yes
+      ignore_errors: yes  # Ignore if backup file doesn't exist
+
+    - name: Deploy CIS-compliant audit rules
+      copy:
+        content: |
+          -w /etc/group -p wa -k identity
+          -w /etc/passwd -p wa -k identity
+          -w /etc/gshadow -p wa -k identity
+          -w /etc/shadow -p wa -k identity
+          -w /etc/security/opasswd -p wa -k identity
+        dest: /etc/audit/rules.d/50-identity.rules
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Merge and apply audit rules
+      command: augenrules --load
+
+    - name: Check if reboot is required
+      shell: auditctl -s | grep "enabled" | grep "2"
+      register: reboot_check
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Prompt user for manual reboot
+      pause:
+        prompt: "Audit rules loaded. A reboot may be required. Do you want to reboot now? (yes/no)"
+      when: reboot_check.rc == 0
+
+    - name: Manually reboot system
+      command: reboot
+      async: 1
+      poll: 0
+      when: reboot_check.rc == 0 and pause_result.user_input == "yes"
