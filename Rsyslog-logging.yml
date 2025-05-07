@@ -1,0 +1,63 @@
+- name: Ensure rsyslog logging configuration with backup directory
+  hosts: all
+  become: true
+  tasks:
+    - name: Create backup directory
+      file:
+        path: /etc/rsyslog_backup
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Backup existing rsyslog.conf
+      copy:
+        src: /etc/rsyslog.conf
+        dest: "/etc/rsyslog_backup/rsyslog.conf.backup_{{ ansible_date_time.epoch }}"
+        remote_src: yes
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configure rsyslog rules
+      template:
+        src: rsyslog.conf.j2
+        dest: /etc/rsyslog.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart rsyslog
+
+    - name: Backup and configure additional rsyslog files
+      block:
+        - name: Backup existing rsyslog.d configuration files
+          copy:
+            src: "/etc/rsyslog.d/{{ item }}.conf"
+            dest: "/etc/rsyslog_backup/{{ item }}.conf.backup_{{ ansible_date_time.epoch }}"
+            remote_src: yes
+            owner: root
+            group: root
+            mode: '0644'
+          loop:
+            - 10-oci
+            - 21-cloudinit
+            - iscsid-rsyslog
+
+        - name: Configure additional rsyslog files
+          template:
+            src: rsyslog.d.conf.j2
+            dest: "/etc/rsyslog.d/{{ item }}.conf"
+            owner: root
+            group: root
+            mode: '0644'
+          loop:
+            - 10-oci
+            - 21-cloudinit
+            - iscsid-rsyslog
+          notify: Restart rsyslog
+
+  handlers:
+    - name: Restart rsyslog
+      service:
+        name: rsyslog
+        state: restarted
