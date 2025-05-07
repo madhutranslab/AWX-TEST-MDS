@@ -4,44 +4,52 @@
   become: yes
   vars:
     timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
-    sudoers_files:
-      - /etc/sudoers.d/100-oracle-cloud-agent-users
-      - /etc/sudoers.d/90-cloud-init-users
+    backup_dir: "/var/backups/sudoers"
 
   tasks:
 
     - name: Ensure backup directory exists
       file:
-        path: "/var/backups/sudoers"
+        path: "{{ backup_dir }}"
         state: directory
         mode: '0755'
 
-    - name: Backup sudoers files before modification
+    - name: Find files in /etc/sudoers.d containing NOPASSWD
+      shell: "grep -l '^[^#]*NOPASSWD' /etc/sudoers.d/* || true"
+      register: sudoers_with_nopasswd
+      changed_when: false
+
+    - name: Set list of matching sudoers files
+      set_fact:
+        matched_sudoers_files: "{{ sudoers_with_nopasswd.stdout_lines }}"
+
+    - name: Backup matched sudoers files
       copy:
         src: "{{ item }}"
-        dest: "/var/backups/sudoers/{{ item | basename }}.{{ timestamp }}"
+        dest: "{{ backup_dir }}/{{ item | basename }}.{{ timestamp }}"
         remote_src: yes
-      loop: "{{ sudoers_files }}"
-      when: ansible_facts['os_family'] == 'RedHat' or ansible_facts['os_family'] == 'Debian'
+      loop: "{{ matched_sudoers_files }}"
+      when: matched_sudoers_files | length > 0
 
-    - name: Remove NOPASSWD lines from sudoers.d files
+    - name: Remove NOPASSWD lines from matched files
       lineinfile:
         path: "{{ item }}"
         regexp: '^([^#]*NOPASSWD)'
         state: absent
         backup: no
-      loop: "{{ sudoers_files }}"
-      notify:
-        - mark_change
+      loop: "{{ matched_sudoers_files }}"
+      when: matched_sudoers_files | length > 0
+      notify: manual_reboot
 
-    - name: Add change comment to sudoers files
+    - name: Add change comment to modified files
       lineinfile:
         path: "{{ item }}"
         line: "# NOPASSWD lines removed by Ansible on {{ ansible_date_time.iso8601 }}"
         insertafter: EOF
-      loop: "{{ sudoers_files }}"
+      loop: "{{ matched_sudoers_files }}"
+      when: matched_sudoers_files | length > 0
 
   handlers:
-    - name: mark_change
+    - name: manual_reboot
       debug:
         msg: "NOPASSWD entries removed. Please manually reboot the system to verify changes."
