@@ -1,48 +1,36 @@
----
-- name: Backup and remove NOPASSWD from sudoers files
+- name: Ensure users must provide password for escalation
   hosts: all
-  become: true
+  become: yes
   vars:
-    timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+    timestamp: "{{ ansible_date_time.epoch }}"
     backup_dir: "/var/backups/sudoers"
+    sudoers_files:
+      - "/etc/sudoers.d/100-oracle-cloud-agent-users"
+      - "/etc/sudoers.d/90-cloud-init-users"
   tasks:
 
-    - name: Ensure backup directory exists
+    - name: Create backup directory if it doesn't exist
       file:
         path: "{{ backup_dir }}"
         state: directory
-        mode: '0755'
+        mode: "0750"
 
-    - name: Find sudoers files containing NOPASSWD
-      shell: |
-        find /etc/sudoers /etc/sudoers.d/ -type f -exec grep -l '^[^#]*NOPASSWD' {} \; 2>/dev/null || true
-      register: sudoers_files
-      changed_when: false
-
-    - name: Show files with NOPASSWD
-      debug:
-        var: sudoers_files.stdout_lines
-
-    - name: Backup sudoers files with NOPASSWD
+    - name: Backup sudoers files with timestamp
       copy:
         src: "{{ item }}"
-        dest: "{{ backup_dir }}/{{ item | basename }}.{{ timestamp }}"
-        remote_src: true
-      loop: "{{ sudoers_files.stdout_lines }}"
-      when: sudoers_files.stdout_lines | length > 0
+        dest: "{{ backup_dir }}/{{ item | basename }}.backup_{{ timestamp }}"
+        mode: "0600"
+      loop: "{{ sudoers_files }}"
+      register: backup_status
 
-    - name: Remove NOPASSWD lines from sudoers files
-      lineinfile:
+    - name: Remove NOPASSWD entries from sudoers files
+      replace:
         path: "{{ item }}"
         regexp: '^[^#]*NOPASSWD'
-        state: absent
-      loop: "{{ sudoers_files.stdout_lines }}"
-      when: sudoers_files.stdout_lines | length > 0
+        replace: ''
+      loop: "{{ sudoers_files }}"
+      register: removal_status
 
-    - name: Add comment about NOPASSWD removal
-      lineinfile:
-        path: "{{ item }}"
-        line: "# NOPASSWD lines removed by Ansible on {{ ansible_date_time.iso8601 }}"
-        insertafter: EOF
-      loop: "{{ sudoers_files.stdout_lines }}"
-      when: sudoers_files.stdout_lines | length > 0
+    - name: Notify user to reboot the system manually
+      debug:
+        msg: "Manual reboot required after execution. Please reboot the system to verify changes."
