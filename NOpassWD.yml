@@ -6,9 +6,16 @@
     sudoers_files:
       - /etc/sudoers.d/100-oracle-cloud-agent-users
       - /etc/sudoers.d/90-cloud-init-users
+    backup_dir: "/var/backups/sudoers"
     timestamp: "{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
 
   tasks:
+
+    - name: Ensure backup directory exists
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0750'
 
     - name: Check if sudoers file exists
       stat:
@@ -16,31 +23,33 @@
       loop: "{{ sudoers_files }}"
       register: sudoers_status
 
-    - name: Backup and clean NOPASSWD lines from sudoers files
+    - name: Backup and clean NOPASSWD lines
       block:
         - name: Backup the sudoers file
           copy:
             src: "{{ item.stat.path }}"
-            dest: "{{ item.stat.path }}.bak.{{ timestamp }}"
+            dest: "{{ backup_dir }}/{{ item.stat.path | basename }}.bak.{{ timestamp }}"
             remote_src: true
+          when: item.stat.exists
 
         - name: Remove NOPASSWD entries
           lineinfile:
             path: "{{ item.stat.path }}"
-            regexp: '^([^#].*NOPASSWD.*)'
+            regexp: '^\s*([^#]\S+\s+ALL=\(ALL\)\s+NOPASSWD:\s*.*)$'
             state: absent
-            backrefs: yes
-      loop: "{{ sudoers_status.results }}"
-      when: item.stat.exists
-      loop_control:
-        label: "{{ item.stat.path }}"
+          when: item.stat.exists
 
-    - name: Create missing sudoers files with secure content
+        - name: Validate sudoers syntax
+          command: "visudo -c"
+          changed_when: false
+      loop: "{{ sudoers_status.results }}"
+
+    - name: Create missing sudoers file with default secure config
       copy:
         dest: "{{ item }}"
         content: "# Secure sudoers file created by Ansible\n"
         owner: root
         group: root
         mode: '0440'
-      loop: "{{ sudoers_files }}"
-      when: item not in sudoers_status.results | selectattr('stat.exists') | map(attribute='stat.path') | list
+      when: not item.stat.exists
+      loop: "{{ sudoers_status.results | map(attribute='stat.path') | list }}"
