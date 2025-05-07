@@ -1,4 +1,4 @@
-- name: Ensure users must provide password for escalation
+- name: Ensure users must provide password for privilege escalation
   hosts: all
   become: yes
   vars:
@@ -7,8 +7,8 @@
     sudoers_files:
       - "/etc/sudoers.d/100-oracle-cloud-agent-users"
       - "/etc/sudoers.d/90-cloud-init-users"
-  tasks:
 
+  tasks:
     - name: Create backup directory if it doesn't exist
       file:
         path: "{{ backup_dir }}"
@@ -20,6 +20,7 @@
         src: "{{ item }}"
         dest: "{{ backup_dir }}/{{ item | basename }}.backup_{{ timestamp }}"
         mode: "0600"
+        remote_src: yes
       loop: "{{ sudoers_files }}"
       register: backup_status
 
