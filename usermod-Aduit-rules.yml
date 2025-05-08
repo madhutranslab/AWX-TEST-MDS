@@ -22,21 +22,24 @@
         group: root
         mode: '0700'
 
-    - name: Backup existing audit rules file
+    - name: Check if audit rule file exists
+      stat:
+        path: /etc/audit/rules.d/50-usermod.rules
+      register: audit_rule_file
+
+    - name: Backup existing audit rules file (if it exists)
       copy:
         src: /etc/audit/rules.d/50-usermod.rules
         dest: /etc/audit/rules_backup/50-usermod.rules.bak
         owner: root
         group: root
         mode: '0600'
-      when: ansible_stat.stat.exists
-      register: backup_status
-      ignore_errors: yes
+      when: audit_rule_file.stat.exists
 
     - name: Notify backup status
       debug:
-        msg: "Backup created: /etc/audit/rules_backup/50-usermod.rules.bak"
-      when: backup_status.changed
+        msg: "Backup created at /etc/audit/rules_backup/50-usermod.rules.bak"
+      when: audit_rule_file.stat.exists
 
     - name: Create audit rule for usermod command
       copy:
