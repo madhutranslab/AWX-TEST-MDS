@@ -23,68 +23,46 @@
       debug:
         msg: "{{ unconfined_services.stdout }}"
 
+    - name: Ensure required service files exist
+      file:
+        path: "{{ item }}"
+        state: touch
+      loop:
+        - "/path/to/falcon-sensor"
+        - "/path/to/falcon-sensor-updater"
+        - "/path/to/falcon-agent"
+      when: item in unconfined_services.stdout
+
     - name: Backup relevant service files before making changes
       copy:
-        src: "/path/to/falcon-sensor"
-        dest: "/backup/falcon-sensor_{{ timestamp }}.bak"
+        src: "{{ item }}"
+        dest: "/backup/{{ item | basename }}_{{ timestamp }}.bak"
         remote_src: yes
-      when: "'falcon-sensor' in unconfined_services.stdout"
+      loop:
+        - "/path/to/falcon-sensor"
+        - "/path/to/falcon-sensor-updater"
+        - "/path/to/falcon-agent"
+      when: item in unconfined_services.stdout
 
-    - name: Backup relevant updater service files before making changes
-      copy:
-        src: "/path/to/falcon-sensor-updater"
-        dest: "/backup/falcon-sensor-updater_{{ timestamp }}.bak"
-        remote_src: yes
-      when: "'updater' in unconfined_services.stdout"
-
-    - name: Backup relevant agent service files before making changes
-      copy:
-        src: "/path/to/falcon-agent"
-        dest: "/backup/falcon-agent_{{ timestamp }}.bak"
-        remote_src: yes
-      when: "'agent' in unconfined_services.stdout"
-
-    - name: Investigate falcon-sensor service
-      when: "'falcon-sensor' in unconfined_services.stdout"
+    - name: Investigate and assign SELinux contexts
       block:
-        - name: Check the SELinux status for falcon-sensor
-          command: semanage fcontext -l | grep falcon-sensor
-          register: falcon_sensor_secontext
-          failed_when: false
+        - name: Check and assign SELinux contexts for services
+          shell: |
+            if ! semanage fcontext -l | grep -q "{{ item | basename }}"; then
+                semanage fcontext -a -t falcon_sensor_exec_t {{ item }}
+                restorecon -Rv {{ item }}
+            fi
+          loop:
+            - "/path/to/falcon-sensor"
+            - "/path/to/falcon-sensor-updater"
+            - "/path/to/falcon-agent"
+          when: item in unconfined_services.stdout
 
-        - name: Assign SELinux context for falcon-sensor if necessary
-          command: semanage fcontext -a -t falcon_sensor_exec_t /path/to/falcon-sensor
-          when: falcon_sensor_secontext.stdout == ""
-          
-    - name: Investigate falcon-sensor updater service
-      when: "'updater' in unconfined_services.stdout"
-      block:
-        - name: Check the SELinux status for falcon-sensor updater
-          command: semanage fcontext -l | grep updater
-          register: falcon_sensor_updater_secontext
-          failed_when: false
-
-        - name: Assign SELinux context for falcon-sensor updater if necessary
-          command: semanage fcontext -a -t falcon_sensor_exec_t /path/to/falcon-sensor-updater
-          when: falcon_sensor_updater_secontext.stdout == ""
-
-    - name: Investigate falcon agent service
-      when: "'agent' in unconfined_services.stdout"
-      block:
-        - name: Check the SELinux status for falcon-agent
-          command: semanage fcontext -l | grep agent
-          register: falcon_agent_secontext
-          failed_when: false
-
-        - name: Assign SELinux context for falcon-agent if necessary
-          command: semanage fcontext -a -t falcon_sensor_exec_t /path/to/falcon-agent
-          when: falcon_agent_secontext.stdout == ""
-
-    - name: Ensure SELinux status is set to enforcing mode
+    - name: Ensure SELinux is enforcing
       shell: |
         setenforce 1
-        sed -i 's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
+        sed -i 's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config"
 
-    - name: Notify user to manually reboot the system
+    - name: Notify user to manually reboot
       debug:
         msg: "Please manually reboot the system for the changes to take effect."
