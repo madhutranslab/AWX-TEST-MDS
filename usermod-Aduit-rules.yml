@@ -1,0 +1,61 @@
+---
+- name: Ensure audit rules for usermod command with backup directory
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Get UID_MIN from /etc/login.defs
+      command: awk '/^\s*UID_MIN/{print $2}' /etc/login.defs
+      register: uid_min_result
+      changed_when: false
+
+    - name: Validate UID_MIN variable
+      fail:
+        msg: "ERROR: Variable 'UID_MIN' is unset."
+      when: uid_min_result.stdout == ""
+
+    - name: Create backup directory if not exists
+      file:
+        path: /etc/audit/rules_backup
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Backup existing audit rules file
+      copy:
+        src: /etc/audit/rules.d/50-usermod.rules
+        dest: /etc/audit/rules_backup/50-usermod.rules.bak
+        owner: root
+        group: root
+        mode: '0600'
+      when: ansible_stat.stat.exists
+      register: backup_status
+      ignore_errors: yes
+
+    - name: Notify backup status
+      debug:
+        msg: "Backup created: /etc/audit/rules_backup/50-usermod.rules.bak"
+      when: backup_status.changed
+
+    - name: Create audit rule for usermod command
+      copy:
+        content: |
+          -a always,exit -F path=/usr/sbin/usermod -F perm=x -F auid>={{ uid_min_result.stdout }} -F auid!=unset -k usermod
+        dest: /etc/audit/rules.d/50-usermod.rules
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Load audit rules
+      command: augenrules --load
+      changed_when: true
+
+    - name: Validate audit rule for usermod
+      command: auditctl -l
+      register: audit_check
+      changed_when: false
+
+    - name: Display audit rule validation output
+      debug:
+        msg: "{{ audit_check.stdout_lines }}"
