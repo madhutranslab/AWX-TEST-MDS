@@ -15,7 +15,7 @@
 
     - name: Get the list of unconfined services
       shell: |
-        /bin/ps -eZ | /bin/grep unconfined_service_t | /bin/awk -F: '{ print $NF } END {if (NR == 0) print ""none""}'
+        /bin/ps -eZ | /bin/grep unconfined_service_t | /bin/awk '{ print $NF } END {if (NR == 0) print "none"}'
       register: unconfined_services
       changed_when: false
 
@@ -61,7 +61,7 @@
     - name: Ensure SELinux is enforcing
       shell: |
         setenforce 1
-        sed -i 's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config"
+        sed -i 's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
 
     - name: Notify user to manually reboot
       debug:
